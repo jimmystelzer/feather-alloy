@@ -1,8 +1,10 @@
 use tauri::Manager;
 
 mod server;
+mod profile;
+mod commands;
 
-// Comandos Tauri serão adicionados nas próximas fases
+use profile::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,6 +21,15 @@ pub fn run() {
             }
             Ok(())
         })
+        .manage(AppState::default())
+        .invoke_handler(tauri::generate_handler![
+            commands::add_profile,
+            commands::get_profiles,
+            commands::remove_profile,
+            commands::show_webview,
+            commands::hide_webview,
+            commands::close_webview,
+        ])
         .plugin(tauri_plugin_shell::init())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
