@@ -2,15 +2,19 @@
 
 ## **1\. Visão Geral**
 
-Aplicação desktop ultra-leve inspirada no Ferdium, desenvolvida em **Rust**, utilizando **Iced** para a interface nativa e **Tauri 2.0 (wry)** para renderização web isolada. O foco é o consumo mínimo de recursos e isolamento total de sessões (multi-perfil).
+Aplicação desktop ultra-leve inspirada no Ferdium, desenvolvida em **Rust** com **Tauri 2.0**, utilizando **HTML/CSS/JavaScript** para a interface do usuário e **Wry** para renderização de webviews isoladas dos serviços. O foco é o consumo mínimo de recursos e isolamento total de sessões (multi-perfil).
+
+**Plataformas Suportadas:** Windows e Linux.
 
 ## **2\. Pilha Tecnológica**
 
-* **Backend & Core:** Rust.  
-* **Frontend (UI):** Iced (Interface nativa via GPU).  
+* **Backend & Core:** Rust (Tauri).  
+* **Frontend (UI):** HTML/CSS/JavaScript (interface moderna e responsiva).  
 * **Engine Web:** Tauri 2.0 / Wry (Webview nativa do OS).  
 * **Isolamento:** WebContext do Tauri para containers de dados separados.  
-* **Ícones:** iced\_aw para ícones de fonte ou carregamento dinâmico de SVGs/Favicons.
+* **Persistência:** Arquivos JSON para armazenamento de perfis e configurações.  
+* **Ícones:** Ícones customizados (PNG/SVG) ou favicons dinâmicos via JavaScript.  
+* **Plataformas:** Windows e Linux (usando webview nativa de cada sistema operacional).
 
 ## **3\. Arquitetura da Interface (UI Layout)**
 
@@ -21,9 +25,9 @@ Aplicação desktop ultra-leve inspirada no Ferdium, desenvolvida em **Rust**, u
   * **Lista de Perfis:** Coluna vertical de botões circulares ou arredondados.  
     * Cada botão representa uma aplicação web.  
     * **Ícone:** Prioridade para ícone customizado (PNG/SVG local). Caso nulo, buscar favicon.ico da URL configurada.  
-    * **Interação Esquerda:** Alterna a visibilidade da WebView correspondente no painel principal.  
-    * **Interação Direita (Context Menu):** Abre menu flutuante (Iced Overlay) com a opção "Editar Perfil".  
-  * **Botão Adicionar ("+"):** Abre modal para cadastro de novo serviço (Nome, URL, User-Agent, Ícone).  
+    * **Interação Esquerda (Clique):** Alterna a visibilidade da WebView correspondente no painel principal através de comandos Tauri.  
+    * **Interação Direita (Context Menu):** Abre menu de contexto HTML/CSS com a opção "Editar Perfil".  
+  * **Botão Adicionar ("+"):** Abre modal HTML para cadastro de novo serviço (Nome, URL, User-Agent, Ícone).  
   * **Botão Configurações (Engrenagem):** Posicionado na base da barra lateral.
 
 ### **3.2. Painel de Conteúdo (Main View)**
@@ -79,13 +83,14 @@ struct AppSettings {
 
 ## **6\. Fluxo de Implementação Recomendado**
 
-1. **Fase 1 (Iced Shell):** Criar a janela principal com a barra lateral esquerda e botões estáticos.  
-2. **Fase 2 (Tauri Multi-Webview):** Integrar a criação de Webview controlada pelo Iced, garantindo que o WebContext seja único por perfil.  
-3. **Fase 3 (Persistência):** Implementar salvamento de perfis em JSON ou SQLite.  
-4. **Fase 4 (Tray & Lifecycle):** Configurar o tauri-plugin-shell e tauri-plugin-tray para os comportamentos de minimizar/ocultar.  
-5. **Fase 5 (UI Polishing):** Implementar o menu de clique direito e o buscador de favicons.
+1. **Fase 1 (Interface Web):** Criar a interface HTML/CSS/JS com a barra lateral esquerda e painel de conteúdo responsivo.  
+2. **Fase 2 (Integração Tauri):** Implementar comandos Tauri em Rust para gerenciar webviews isoladas, garantindo que o WebContext seja único por perfil.  
+3. **Fase 3 (Persistência JSON):** Implementar salvamento e leitura de perfis em arquivos JSON através de comandos Tauri, com suporte multiplataforma (Windows e Linux).  
+4. **Fase 4 (Tray & Lifecycle):** Configurar tauri-plugin-tray e eventos de janela para comportamentos de minimizar/ocultar.  
+5. **Fase 5 (UI Polishing):** Implementar menu de contexto, modais de configuração e buscador de favicons via JavaScript.
 
 ## **7\. Notas de Performance**
 
-* O uso do **Iced** elimina o overhead de ter uma "WebView para renderizar a UI da aplicação", deixando o Chromium/WebKit focado apenas nos serviços desejados.  
-* O executável final deve ser significativamente menor que o do Electron (\< 20MB vs \> 100MB).
+* O uso do **Tauri** com renderização web nativa elimina o overhead do Electron, permitindo que o executável final seja significativamente menor.  
+* A interface em HTML/CSS/JS será renderizada na webview principal, mantendo webviews separadas e isoladas para cada serviço configurado.  
+* O executável final deve ser significativamente menor que o do Electron (< 20MB vs > 100MB), com menor consumo de memória e CPU.
