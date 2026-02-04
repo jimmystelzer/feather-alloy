@@ -22,6 +22,11 @@ pub enum IpcMessage {
     CancelAddProfile,
     
     // Menu de Contexto
+    ShowProfileContextMenu {
+        uuid: String,
+        x: f64,
+        y: f64,
+    },
     ReloadProfile {
         uuid: String,
     },
@@ -161,7 +166,10 @@ impl IpcHandler {
             }
 
             
+            IpcMessage::ShowProfileContextMenu { .. } => None,
+            
             // Outras mensagens não precisam de resposta ou são apenas para notificação
+
             _ => None,
         }
     }

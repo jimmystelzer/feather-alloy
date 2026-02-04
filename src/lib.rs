@@ -2,6 +2,7 @@ pub mod profile;
 pub mod ipc;
 pub mod window_manager;
 pub mod persistence;
+pub mod context_menu;
 
 use profile::create_app_state;
 use window_manager::{WindowManager, AppEvent};

@@ -489,10 +489,19 @@
                 selectProfile(profile.uuid);
             });
             
-            // Context menu (botão direito)
+            // Context menu (botão direito) usando menu nativo via IPC
             btn.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                showContextMenu(profile, e.clientX, e.clientY);
+                console.log('[Toolbar] Calling native context menu for profile:', profile.uuid);
+                
+                sendMessage({
+                    type: 'ShowProfileContextMenu',
+                    payload: { 
+                        uuid: profile.uuid,
+                        x: e.clientX,
+                        y: e.clientY
+                    }
+                });
             });
             
             return btn;
@@ -509,87 +518,7 @@
             });
         }
 
-        function showContextMenu(profile, x, y) {
-            console.log('[Toolbar] Showing context menu for profile:', profile);
-            
-            const contextMenu = document.getElementById('contextMenu');
-            if (!contextMenu) return;
-            
-            // Posicionar o menu
-            contextMenu.style.left = `${x}px`;
-            contextMenu.style.top = `${y}px`;
-            contextMenu.classList.add('active');
-            
-            // Armazenar o perfil atual no menu
-            contextMenu.dataset.profileUuid = profile.uuid;
-            
-            // Adicionar event listeners aos itens do menu (remover anteriores primeiro)
-            const items = contextMenu.querySelectorAll('.context-menu-item');
-            items.forEach(item => {
-                const newItem = item.cloneNode(true);
-                item.parentNode.replaceChild(newItem, item);
-            });
-            
-            // Adicionar novos listeners
-            contextMenu.querySelectorAll('.context-menu-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    const action = item.dataset.action;
-                    handleContextMenuAction(action, profile.uuid);
-                    hideContextMenu();
-                });
-            });
-        }
-
-        function hideContextMenu() {
-            const contextMenu = document.getElementById('contextMenu');
-            if (contextMenu) {
-                contextMenu.classList.remove('active');
-            }
-        }
-
-        function handleContextMenuAction(action, uuid) {
-            console.log('[Toolbar] Context menu action:', action, 'for profile:', uuid);
-            
-            switch (action) {
-                case 'reload':
-                    sendMessage({
-                        type: 'ReloadProfile',
-                        payload: { uuid }
-                    });
-                    break;
-                    
-                case 'update-icon':
-                    sendMessage({
-                        type: 'UpdateProfileIcon',
-                        payload: { uuid }
-                    });
-                    break;
-                    
-                case 'edit':
-                    sendMessage({
-                        type: 'EditProfile',
-                        payload: { uuid }
-                    });
-                    break;
-                    
-                case 'remove':
-                    if (confirm('Tem certeza que deseja remover este perfil?')) {
-                        sendMessage({
-                            type: 'RemoveProfile',
-                            payload: { uuid }
-                        });
-                    }
-                    break;
-            }
-        }
-
-        // Fechar menu de contexto ao clicar fora
-        document.addEventListener('click', (e) => {
-            const contextMenu = document.getElementById('contextMenu');
-            if (contextMenu && !contextMenu.contains(e.target)) {
-                hideContextMenu();
-            }
-        });
+        // Funções de menu de contexto HTML removidas em favor do menu nativo (muda)
 
         // Comunicação IPC
         function sendMessage(message) {

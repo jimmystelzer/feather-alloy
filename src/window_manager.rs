@@ -35,6 +35,7 @@ pub enum AppEvent {
     ShowProfile {
         uuid: String,
     },
+    ShowProfileContextMenu {         uuid: String,         x: f64,         y: f64,     },
     ReloadProfile {
         uuid: String,
     },
@@ -72,6 +73,8 @@ pub struct WindowManager {
     // WebContexts por perfil
     web_contexts: HashMap<String, WebContext>,
     tray: Option<tray_icon::TrayIcon>,
+    context_menu: Option<crate::context_menu::ProfileContextMenu>,
+    context_menu_target_uuid: Option<String>,
 }
 
 impl WindowManager {
@@ -126,6 +129,8 @@ impl WindowManager {
             proxy: proxy.clone(),
             web_contexts: HashMap::new(),
             tray: None,
+            context_menu: crate::context_menu::ProfileContextMenu::new().ok(),
+            context_menu_target_uuid: None,
         };
 
         if manager.state.lock().unwrap().settings.enable_tray {
@@ -263,6 +268,13 @@ impl WindowManager {
 
         let toolbar_html = include_str!("../ui/toolbar/index.html");
         
+        let disable_context_menu = r#"
+            document.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                return false;
+            }, false);
+        "#;
+        
         let init_script = r#"
             console.log('[Toolbar] Initialization script running');
             console.log('[Toolbar] window.ipc available:', typeof window.ipc !== 'undefined');
@@ -271,7 +283,10 @@ impl WindowManager {
         let webview = WebViewBuilder::new()
             .with_bounds(toolbar_bounds)
             .with_custom_protocol("asset".into(), Self::asset_protocol_handler)
+            // Scripts de inicialização executados em ordem
+            .with_initialization_script(disable_context_menu)
             .with_initialization_script(init_script)
+            .with_devtools(false) // Desabilitar DevTools
             .with_html(toolbar_html)
             .with_ipc_handler(move |request: http::Request<String>| {
                 let body = request.body();
@@ -291,6 +306,12 @@ impl WindowManager {
                         }
                         IpcMessage::GetProfiles => {
                             let _ = proxy.send_event(AppEvent::UpdateToolbar);
+                        }
+                        IpcMessage::ShowSettings => {
+                            let _ = proxy.send_event(AppEvent::ShowSettings);
+                        }
+                        IpcMessage::ShowProfileContextMenu { uuid, x, y } => {
+                            let _ = proxy.send_event(AppEvent::ShowProfileContextMenu { uuid, x, y });
                         }
                         IpcMessage::ReloadProfile { uuid } => {
                             let _ = proxy.send_event(AppEvent::ReloadProfile { uuid });
@@ -337,6 +358,13 @@ impl WindowManager {
 
         let welcome_html = include_str!("../ui/content/index.html");
 
+        let disable_context_menu = r#"
+            document.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                return false;
+            }, false);
+        "#;
+        
         let init_script = r#"
             console.log('[Welcome] Initialization script running');
         "#;
@@ -344,7 +372,10 @@ impl WindowManager {
         let webview = WebViewBuilder::new()
             .with_bounds(content_bounds)
             .with_custom_protocol("asset".into(), Self::asset_protocol_handler)
+            // Scripts executados em ordem
+            .with_initialization_script(disable_context_menu)
             .with_initialization_script(init_script)
+            .with_devtools(false) // Desabilitar DevTools
             .with_html(welcome_html)
             .with_ipc_handler(move |request: http::Request<String>| {
                 let body = request.body();
@@ -417,13 +448,23 @@ impl WindowManager {
             ).into(),
         };
 
+        let disable_context_menu = r#"
+            document.addEventListener('contextmenu', function(e) {
+                e.preventDefault();
+                return false;
+            }, false);
+        "#;
+        
         let init_script = r#"
             console.log('[Profile] Initialization script running');
         "#;
 
         let webview = WebViewBuilder::new_with_web_context(web_context)
             .with_bounds(content_bounds)
+            // Scripts executados em ordem
+            .with_initialization_script(disable_context_menu)
             .with_initialization_script(init_script)
+            .with_devtools(false) // Desabilitar DevTools
             .with_url(url)
             .with_visible(false) // Iniciar oculto
             .build_as_child(window)?;
@@ -816,6 +857,40 @@ impl WindowManager {
                 }
             }
 
+            // Processar eventos do menu nativo
+            if let Ok(event) = muda::MenuEvent::receiver().try_recv() {
+                if let Some(context_menu) = &self.context_menu {
+                    if let Some(action) = context_menu.get_action(&event) {
+                        // Precisamos saber qual UUID foi clicado.
+                        // Como o menu é modal (ou quase), podemos guardar o UUID temporariamente no WindowManager
+                        // quando abrimos o menu.
+                        // Mas 'get_action' só retorna a ação.
+                        // Vamos precisar de um campo 'context_menu_target_uuid' no WindowManager.
+                        // Ou simplificar: assumir que a ação se aplica ao perfil que abriu o menu.
+                        // Mas espera, o menu é assíncrono?
+                        // O receiver recebe o evento quando clicado.
+                        // Se guardarmos o UUID alvo quando abrimos o menu, podemos usar aqui.
+                        
+                        if let Some(uuid) = &self.context_menu_target_uuid {
+                             match action {
+                                crate::context_menu::ProfileMenuAction::Reload => {
+                                    let _ = self.proxy.send_event(AppEvent::ReloadProfile { uuid: uuid.clone() });
+                                }
+                                crate::context_menu::ProfileMenuAction::UpdateIcon => {
+                                    let _ = self.proxy.send_event(AppEvent::UpdateProfileIcon { uuid: uuid.clone() });
+                                }
+                                crate::context_menu::ProfileMenuAction::Edit => {
+                                    let _ = self.proxy.send_event(AppEvent::ShowEditProfile { uuid: uuid.clone() });
+                                }
+                                crate::context_menu::ProfileMenuAction::Remove => {
+                                    let _ = self.proxy.send_event(AppEvent::RemoveProfile { uuid: uuid.clone() });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             match event {
                 Event::UserEvent(app_event) => {
                     println!("[WindowManager] >>> RECEIVED USER EVENT: {:?}", app_event);
@@ -865,6 +940,12 @@ impl WindowManager {
                             self.window.set_visible(!is_visible);
                             if !is_visible { 
                                 self.window.set_focus(); 
+                            }
+                        }
+                        AppEvent::ShowProfileContextMenu { uuid, x, y } => {
+                            self.context_menu_target_uuid = Some(uuid);
+                            if let Some(context_menu) = &self.context_menu {
+                                let _ = context_menu.show_at(&self.window, x, y);
                             }
                         }
                         AppEvent::Quit => {
