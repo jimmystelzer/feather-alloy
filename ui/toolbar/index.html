@@ -490,18 +490,26 @@
             });
             
             // Context menu (botão direito) usando menu nativo via IPC
+            // Prevenir menu padrão
             btn.addEventListener('contextmenu', (e) => {
                 e.preventDefault();
-                console.log('[Toolbar] Calling native context menu for profile:', profile.uuid);
-                
-                sendMessage({
-                    type: 'ShowProfileContextMenu',
-                    payload: { 
-                        uuid: profile.uuid,
-                        x: e.clientX,
-                        y: e.clientY
-                    }
-                });
+            });
+
+            // Usar mouseup para garantir que o menu só abra após soltar o botão
+            // Isso evita que o evento mouseup seja capturado pelo menu nativo e o feche imediatamente (bug comum em Linux)
+            btn.addEventListener('mouseup', (e) => {
+                if (e.button === 2) { // 2 = Botão direito
+                    console.log('[Toolbar] Calling native context menu for profile:', profile.uuid);
+                    
+                    sendMessage({
+                        type: 'ShowProfileContextMenu',
+                        payload: { 
+                            uuid: profile.uuid,
+                            x: e.clientX,
+                            y: e.clientY
+                        }
+                    });
+                }
             });
             
             return btn;

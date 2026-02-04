@@ -325,9 +325,7 @@ impl WindowManager {
                         IpcMessage::RemoveProfile { uuid } => {
                             let _ = proxy.send_event(AppEvent::RemoveProfile { uuid });
                         }
-                        IpcMessage::ShowSettings => {
-                            let _ = proxy.send_event(AppEvent::ShowSettings);
-                        }
+
                         _ => {
                             let handler = IpcHandler::new(state.clone());
                             if let Some(response) = handler.handle_message(message) {
@@ -680,14 +678,32 @@ impl WindowManager {
             }
             
             let edit_profile_html = include_str!("../ui/content/edit-profile.html");
-            self.welcome_webview.load_html(edit_profile_html)?;
             
-            // Injetar dados do perfil
-            let script = format!(
-                "if (window.loadProfileData) {{ window.loadProfileData({}); }}",
-                profile_json
+            // Injetar dados diretamente no HTML antes de carregar
+            // Isso garante que os dados estejam disponíveis imediatamente
+            let html_with_data = edit_profile_html.replace(
+                "</body>",
+                &format!(
+                    r#"<script>
+                    console.log('[EditProfile] Injected data script running');
+                    window.__PROFILE_DATA__ = {};
+                    if (window.loadProfileData) {{
+                        console.log('[EditProfile] Calling loadProfileData immediately');
+                        window.loadProfileData(window.__PROFILE_DATA__);
+                    }} else {{
+                        document.addEventListener('DOMContentLoaded', function() {{
+                            console.log('[EditProfile] DOMContentLoaded, calling loadProfileData');
+                            if (window.loadProfileData) {{
+                                window.loadProfileData(window.__PROFILE_DATA__);
+                            }}
+                        }});
+                    }}
+                    </script></body>"#,
+                    profile_json
+                )
             );
-            self.welcome_webview.evaluate_script(&script)?;
+            
+            self.welcome_webview.load_html(&html_with_data)?;
             self.welcome_webview.set_visible(true)?;
             
             self.current_profile_uuid = None;
