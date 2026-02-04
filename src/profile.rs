@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use tauri::WebviewWindow;
+use std::sync::{Arc, Mutex};
 
 /// Representa um perfil/serviço web configurado
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,16 +33,8 @@ impl WebProfile {
 }
 
 /// Estado global da aplicação
-pub struct AppState {
-    pub profiles: std::sync::Mutex<Vec<WebProfile>>,
-    pub webviews: std::sync::Mutex<HashMap<String, WebviewWindow>>,
-}
+pub type AppState = Arc<Mutex<Vec<WebProfile>>>;
 
-impl Default for AppState {
-    fn default() -> Self {
-        Self {
-            profiles: std::sync::Mutex::new(Vec::new()),
-            webviews: std::sync::Mutex::new(HashMap::new()),
-        }
-    }
+pub fn create_app_state() -> AppState {
+    Arc::new(Mutex::new(Vec::new()))
 }

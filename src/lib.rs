@@ -1,36 +1,31 @@
-use tauri::Manager;
-
-mod server;
 mod profile;
-mod commands;
+mod ipc;
+mod window_manager;
 
-use profile::AppState;
+use tao::event_loop::EventLoop;
+use profile::create_app_state;
+use window_manager::WindowManager;
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
+#[cfg(target_os = "linux")]
+use gtk;
+
 pub fn run() {
-    // Iniciar servidor HTTP para arquivos estáticos
-    #[cfg(debug_assertions)]
-    server::serve_static_files();
+    // Inicializar GTK no Linux
+    #[cfg(target_os = "linux")]
+    {
+        gtk::init().expect("Failed to initialize GTK");
+    }
 
-    tauri::Builder::default()
-        .setup(|app| {
-            #[cfg(debug_assertions)]
-            {
-                let window = app.get_webview_window("main").unwrap();
-                window.open_devtools();
-            }
-            Ok(())
-        })
-        .manage(AppState::default())
-        .invoke_handler(tauri::generate_handler![
-            commands::add_profile,
-            commands::get_profiles,
-            commands::remove_profile,
-            commands::show_webview,
-            commands::hide_webview,
-            commands::close_webview,
-        ])
-        .plugin(tauri_plugin_shell::init())
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    // Criar estado da aplicação
+    let state = create_app_state();
+
+    // Criar event loop
+    let event_loop = EventLoop::new();
+
+    // Criar window manager com as duas webviews
+    let window_manager = WindowManager::new(&event_loop, state)
+        .expect("Failed to create window manager");
+
+    // Executar event loop
+    window_manager.run(event_loop);
 }
