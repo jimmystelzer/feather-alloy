@@ -50,9 +50,14 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 60px;
             backdrop-filter: blur(10px);
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .logo img {
+            width: 80px;
+            height: 80px;
+            object-fit: contain;
         }
 
         h1 {
@@ -118,7 +123,9 @@
 </head>
 <body>
     <div class="welcome-container">
-        <div class="logo">🪶</div>
+        <div class="logo">
+            <img src="asset://icons/128x128.png" alt="Feather Alloy">
+        </div>
         <h1>Feather Alloy</h1>
         <p>Agregador de Serviços Web Ultra-Leve</p>
         <p>Selecione um serviço na barra lateral ou adicione um novo</p>

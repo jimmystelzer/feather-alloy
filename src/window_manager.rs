@@ -28,6 +28,7 @@ pub enum AppEvent {
         uuid: String,
     },
     UpdateToolbar,
+    ShowWelcome,
 }
 
 pub struct WindowManager {
@@ -56,8 +57,11 @@ impl WindowManager {
             println!("[WindowManager] Loaded {} profiles from disk", profiles.len());
         }
         
+        let icon = Self::load_icon().ok();
+        
         let window = WindowBuilder::new()
             .with_title("Feather Alloy")
+            .with_window_icon(icon)
             .with_inner_size(LogicalSize::new(1200.0, 800.0))
             .with_min_inner_size(LogicalSize::new(800.0, 600.0))
             .build(event_loop)?;
@@ -91,6 +95,66 @@ impl WindowManager {
         })
     }
 
+    fn load_icon() -> Result<tao::window::Icon, Box<dyn std::error::Error>> {
+        let icon_bytes = include_bytes!("../icons/128x128.png");
+        let image = image::load_from_memory(icon_bytes)?.to_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        tao::window::Icon::from_rgba(rgba, width, height).map_err(|e| e.into())
+    }
+
+    fn asset_protocol_handler(_id: wry::WebViewId, request: http::Request<Vec<u8>>) -> http::Response<std::borrow::Cow<'static, [u8]>> {
+        let uri = request.uri();
+        
+        // Em WRY, o esquema asset://caminho/para/arquivo pode vir com o host sendo a primeira parte do caminho
+        let mut path_str = if let Some(host) = uri.host() {
+            format!("{}{}", host, uri.path())
+        } else {
+            uri.path().to_string()
+        };
+        
+        // Remover barra inicial se existir para facilitar o join com o path relativo
+        if path_str.starts_with('/') {
+            path_str.remove(0);
+        }
+
+        let path = std::path::PathBuf::from(&path_str);
+        // println!("[AssetProtocol] Requesting: {:?} (from URI: {})", path, uri);
+        
+        match std::fs::read(&path) {
+            Ok(content) => {
+                let mime_type = if path.extension().map(|e| e == "png").unwrap_or(false) {
+                    "image/png"
+                } else if path.extension().map(|e| e == "svg").unwrap_or(false) {
+                    "image/svg+xml"
+                } else if path.extension().map(|e| e == "ico").unwrap_or(false) {
+                    "image/x-icon"
+                } else if path.extension().map(|e| e == "html").unwrap_or(false) {
+                    "text/html"
+                } else if path.extension().map(|e| e == "css").unwrap_or(false) {
+                    "text/css"
+                } else if path.extension().map(|e| e == "js").unwrap_or(false) {
+                    "text/javascript"
+                } else {
+                    "application/octet-stream"
+                };
+                
+                http::Response::builder()
+                    .header("Content-Type", mime_type)
+                    .header("Access-Control-Allow-Origin", "*")
+                    .body(std::borrow::Cow::from(content))
+                    .unwrap()
+            }
+            Err(e) => {
+                eprintln!("[AssetProtocol] Failed to read asset {:?}: {}", path, e);
+                http::Response::builder()
+                    .status(404)
+                    .body(std::borrow::Cow::from(Vec::new()))
+                    .unwrap()
+            }
+        }
+    }
+
     fn create_toolbar_webview(
         window: &Window,
         window_size: PhysicalSize<u32>,
@@ -111,6 +175,7 @@ impl WindowManager {
         
         let webview = WebViewBuilder::new()
             .with_bounds(toolbar_bounds)
+            .with_custom_protocol("asset".into(), Self::asset_protocol_handler)
             .with_initialization_script(init_script)
             .with_html(toolbar_html)
             .with_ipc_handler(move |request: http::Request<String>| {
@@ -125,6 +190,9 @@ impl WindowManager {
                         }
                         IpcMessage::ShowProfile { uuid } => {
                             let _ = proxy.send_event(AppEvent::ShowProfile { uuid });
+                        }
+                        IpcMessage::ShowWelcome => {
+                            let _ = proxy.send_event(AppEvent::ShowWelcome);
                         }
                         IpcMessage::GetProfiles => {
                             let _ = proxy.send_event(AppEvent::UpdateToolbar);
@@ -165,6 +233,7 @@ impl WindowManager {
 
         let webview = WebViewBuilder::new()
             .with_bounds(content_bounds)
+            .with_custom_protocol("asset".into(), Self::asset_protocol_handler)
             .with_initialization_script(init_script)
             .with_html(welcome_html)
             .with_ipc_handler(move |request: http::Request<String>| {
@@ -428,6 +497,9 @@ impl WindowManager {
                         }
                         AppEvent::UpdateToolbar => {
                             let _ = self.update_toolbar_profiles();
+                        }
+                        AppEvent::ShowWelcome => {
+                            let _ = self.show_welcome();
                         }
                     }
                 }
