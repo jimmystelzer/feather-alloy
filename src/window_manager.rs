@@ -7,7 +7,7 @@ use tao::{
     window::{Window, WindowBuilder},
 };
 use wry::{Rect, WebView, WebViewBuilder, WebContext};
-use tray_icon::{TrayIconBuilder, TrayIconEvent};
+use tray_icon::TrayIconBuilder;
 
 use crate::ipc::{IpcHandler, IpcMessage};
 use crate::profile::AppState;
@@ -30,6 +30,8 @@ pub enum AppEvent {
     },
     UpdateToolbar,
     ShowWelcome,
+    ToggleWindow,
+    Quit,
 }
 
 pub struct WindowManager {
@@ -40,6 +42,7 @@ pub struct WindowManager {
     profile_webviews: HashMap<String, WebView>,
     state: AppState,
     current_profile_uuid: Option<String>,
+    proxy: EventLoopProxy<AppEvent>,
     // WebContexts por perfil
     web_contexts: HashMap<String, WebContext>,
     tray: Option<tray_icon::TrayIcon>,
@@ -94,12 +97,13 @@ impl WindowManager {
             profile_webviews: HashMap::new(),
             state,
             current_profile_uuid: None,
+            proxy: proxy.clone(),
             web_contexts: HashMap::new(),
             tray: None,
         };
 
         if manager.state.lock().unwrap().settings.enable_tray {
-            match Self::setup_tray() {
+            match Self::setup_tray(proxy.clone()) {
                 Ok(tray) => manager.tray = Some(tray),
                 Err(e) => eprintln!("[WindowManager] Failed to setup tray: {}", e),
             }
@@ -108,18 +112,49 @@ impl WindowManager {
         Ok(manager)
     }
 
-    fn setup_tray() -> Result<tray_icon::TrayIcon, Box<dyn std::error::Error>> {
-        let icon_bytes = include_bytes!("../icons/128x128.png");
+    fn setup_tray(proxy: EventLoopProxy<AppEvent>) -> Result<tray_icon::TrayIcon, Box<dyn std::error::Error>> {
+        use tray_icon::menu::{Menu, MenuItem};
+        
+        println!("[WindowManager] Loading tray icon (32x32.png)...");
+        let icon_bytes = include_bytes!("../icons/32x32.png");
         let image = image::load_from_memory(icon_bytes)?.to_rgba8();
         let (width, height) = image.dimensions();
         let rgba = image.into_raw();
         let tray_icon = tray_icon::Icon::from_rgba(rgba, width, height)?;
 
+        // Criar menu para o tray (necessário no Linux onde eventos de clique não funcionam)
+        let menu = Menu::new();
+        let toggle_item = MenuItem::new("Show/Hide", true, None);
+        let quit_item = MenuItem::new("Quit", true, None);
+        
+        menu.append(&toggle_item)?;
+        menu.append(&quit_item)?;
+
+        // Armazenar os IDs antes de criar a closure
+        let toggle_id = toggle_item.id().clone();
+        let quit_id = quit_item.id().clone();
+
+        // Configurar handler para eventos de menu
+        let proxy_clone = proxy.clone();
+        tray_icon::menu::MenuEvent::set_event_handler(Some(move |event: tray_icon::menu::MenuEvent| {
+            println!("[WindowManager] Menu event: {:?}", event);
+            if event.id == toggle_id {
+                let _ = proxy_clone.send_event(AppEvent::ToggleWindow);
+            } else if event.id == quit_id {
+                let _ = proxy_clone.send_event(AppEvent::Quit);
+            }
+        }));
+
+        println!("[WindowManager] Building tray icon with menu");
         let tray = TrayIconBuilder::new()
             .with_icon(tray_icon)
             .with_tooltip("Feather Alloy")
+            .with_title("Feather Alloy")
+            .with_id("feather-alloy-tray")
+            .with_menu(Box::new(menu))
             .build()?;
             
+        println!("[WindowManager] Tray icon built successfully");
         Ok(tray)
     }
 
@@ -497,8 +532,6 @@ impl WindowManager {
 
     pub fn run(mut self, event_loop: EventLoop<AppEvent>) -> ! {
         let _ = self.update_toolbar_profiles();
-        
-        let tray_receiver = TrayIconEvent::receiver();
 
         event_loop.run(move |event, _elwt, control_flow| {
             *control_flow = ControlFlow::Wait;
@@ -510,15 +543,9 @@ impl WindowManager {
                 }
             }
 
-            // Processar eventos da bandeja
-            if let Ok(event) = tray_receiver.try_recv() {
-                println!("[WindowManager] Tray event: {:?}", event);
-                let is_visible = self.window.is_visible();
-                self.window.set_visible(!is_visible);
-            }
-
             match event {
                 Event::UserEvent(app_event) => {
+                    println!("[WindowManager] >>> RECEIVED USER EVENT: {:?}", app_event);
                     match app_event {
                         AppEvent::ShowAddProfileForm => {
                             let _ = self.show_add_profile_form();
@@ -537,6 +564,18 @@ impl WindowManager {
                         }
                         AppEvent::ShowWelcome => {
                             let _ = self.show_welcome();
+                        }
+                        AppEvent::ToggleWindow => {
+                            println!("[WindowManager] >>> TOGGLE WINDOW EVENT");
+                            let is_visible = self.window.is_visible();
+                            self.window.set_visible(!is_visible);
+                            if !is_visible { 
+                                self.window.set_focus(); 
+                            }
+                        }
+                        AppEvent::Quit => {
+                            println!("[WindowManager] >>> QUIT EVENT");
+                            *control_flow = ControlFlow::Exit;
                         }
                     }
                 }
