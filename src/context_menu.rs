@@ -1,5 +1,5 @@
 use muda::{Menu, MenuItem, MenuEvent, PredefinedMenuItem, ContextMenu};
-use std::sync::Arc;
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileMenuAction {
@@ -21,10 +21,10 @@ impl ProfileContextMenu {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let menu = Menu::new();
         
-        let reload_item = MenuItem::new("🔄 Atualizar conteúdo", true, None);
-        let update_icon_item = MenuItem::new("🎨 Atualizar ícone", true, None);
-        let edit_item = MenuItem::new("✏️ Editar perfil", true, None);
-        let remove_item = MenuItem::new("🗑️ Remover perfil", true, None);
+        let reload_item = MenuItem::new("Atualizar conteúdo", true, None);
+        let update_icon_item = MenuItem::new("Atualizar ícone", true, None);
+        let edit_item = MenuItem::new("Editar perfil", true, None);
+        let remove_item = MenuItem::new("Remover perfil", true, None);
         
         menu.append(&reload_item)?;
         menu.append(&update_icon_item)?;
@@ -53,7 +53,7 @@ impl ProfileContextMenu {
         #[cfg(target_os = "linux")]
         {
             use tao::platform::unix::WindowExtUnix;
-            use gtk::prelude::*; // Necessário para traits de conversão
+
             
             let gtk_window = window.gtk_window();
             let window_ref: &gtk::Window = gtk_window.as_ref();
