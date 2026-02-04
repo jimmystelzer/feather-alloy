@@ -1,8 +1,8 @@
-mod profile;
-mod ipc;
-mod window_manager;
+pub mod profile;
+pub mod ipc;
+pub mod window_manager;
+pub mod persistence;
 
-use tao::event_loop::EventLoop;
 use profile::create_app_state;
 use window_manager::{WindowManager, AppEvent};
 

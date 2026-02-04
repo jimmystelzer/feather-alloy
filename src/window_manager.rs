@@ -48,6 +48,14 @@ impl WindowManager {
         event_loop: &EventLoop<AppEvent>,
         state: AppState,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        // Carregar perfis salvos
+        let saved_profiles = crate::persistence::load_profiles()?;
+        if !saved_profiles.is_empty() {
+            let mut profiles = state.lock().unwrap();
+            *profiles = saved_profiles;
+            println!("[WindowManager] Loaded {} profiles from disk", profiles.len());
+        }
+        
         let window = WindowBuilder::new()
             .with_title("Feather Alloy")
             .with_inner_size(LogicalSize::new(1200.0, 800.0))
@@ -337,6 +345,12 @@ impl WindowManager {
         
         let mut profiles = self.state.lock().unwrap();
         profiles.push(profile.clone());
+        
+        // Salvar perfis em disco
+        if let Err(e) = crate::persistence::save_profiles(&profiles) {
+            eprintln!("[WindowManager] Failed to save profiles: {}", e);
+        }
+        
         drop(profiles);
         
         println!("[WindowManager] Profile added: {} ({})", name, url);
