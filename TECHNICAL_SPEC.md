@@ -56,22 +56,23 @@ Aplicação desktop ultra-leve inspirada no Ferdium, desenvolvida em **Rust** co
 * O diretório de dados (data\_directory) no Rust deve ser mapeado como:  
   app\_data\_dir/profiles/{id\_perfil}/.  
 * Isso permite rodar múltiplas instâncias do WhatsApp, Gmail ou Teams sem conflito de cookies.
+* O ícone de cada aplicação deve ser persistido em disco e referenciado no arquivo de configuração do perfil.
 
 ### **4.2. Configurações da Aplicação**
 
 A tela de configurações (ícone de engrenagem) deve gerenciar:
 
-* **Minimizar ao Abrir:** Inicia a aplicação ocultada na bandeja.  
-* **Minimizar ao Fechar:** O botão "X" da janela não encerra o processo, apenas minimiza.  
-* **Ocultar ao Fechar:** O botão "X" esconde a janela completamente (acessível apenas via Tray).  
+* **Minimizar ao Abrir:** Inicia a aplicação ocultada na bandeja ou minimizada (depende da configuração de minimizar ao fechar e ocultar ao fechar que são excludentes).  
+* **Minimizar ao Fechar:** O botão "X" (fechar da janela) não encerra o processo, apenas minimiza.  
+* **Ocultar ao Fechar:** O botão "X" (fechar da janela) esconde a janela completamente (acessível apenas via Tray).
+* **Fechar Feather Alloy:** Botão para fechar a aplicação/janela encerrando o processo (mesmo se as configurações de minimizar ao fechar e ocultar ao fechar estiverem habilitadas).  
 * **Ícone de Bandeja (System Tray):**  
-  * Ícone persistente na área de notificação.  
-  * Clique simples: Restaura/Foca a aplicação.  
-  * Menu de contexto: Sair da aplicação.
+  * Ícone persistente na área de notificação (usar ícone do Feather Alloy contido na aplicação ou na pasta icons).  
+  * Clique simples: inverte o estado de ocultar/minimizar da aplicação.  
+
 
 ### **4.3. Gerenciamento de Memória (Hibernação)**
 
-* Implementar lógica em Rust para detectar Webviews inativas por mais de X minutos.  
 * Utilizar sinais do SO para reduzir o conjunto de trabalho (working set) das Webviews em background.
 
 ## **5\. Estrutura de Dados (Configuração)**
@@ -99,10 +100,10 @@ struct AppSettings {
 1. **Fase 1 (Interface Web):** ✅ Criar a interface HTML/CSS/JS com a barra lateral esquerda e painel de conteúdo responsivo.
 2. **Fase 2 (Integração WRY + Tao):** ✅ Implementar gerenciamento de webviews usando WRY diretamente, com layout dual-pane (toolbar + content) e WebContext isolado por perfil.
 3. **Fase 3 (Persistência JSON):** ✅ Implementar salvamento e leitura de perfis em arquivos JSON através do sistema de estado compartilhado (`Arc<Mutex<Vec<WebProfile>>>`).
-4. **Fase 4 (Tray & Lifecycle):** 🔄 Configurar system tray e eventos de janela para comportamentos de minimizar/ocultar.
+4. **Fase 4 (Tray & Lifecycle):** ✅ Configurar system tray e eventos de janela para comportamentos de minimizar/ocultar.
 5. **Fase 5 (UI Polishing):** 🔄 Implementar menu de contexto, modais de configuração e buscador de favicons via JavaScript.
 
-**Status Atual:** Fases 1-3 concluídas. Sistema de webviews persistentes com isolamento completo funcionando.
+**Status Atual:** Fases 1-4 concluídas. Sistema de tray icon funcionando como toggle e gerenciamento de ciclo de vida da janela implementado.
 
 
 ## **7. Notas de Performance**

@@ -7,6 +7,7 @@ use tao::{
     window::{Window, WindowBuilder},
 };
 use wry::{Rect, WebView, WebViewBuilder, WebContext};
+use tray_icon::{TrayIconBuilder, TrayIconEvent};
 
 use crate::ipc::{IpcHandler, IpcMessage};
 use crate::profile::AppState;
@@ -39,9 +40,9 @@ pub struct WindowManager {
     profile_webviews: HashMap<String, WebView>,
     state: AppState,
     current_profile_uuid: Option<String>,
-    proxy: EventLoopProxy<AppEvent>,
     // WebContexts por perfil
     web_contexts: HashMap<String, WebContext>,
+    tray: Option<tray_icon::TrayIcon>,
 }
 
 impl WindowManager {
@@ -49,12 +50,15 @@ impl WindowManager {
         event_loop: &EventLoop<AppEvent>,
         state: AppState,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        // Carregar perfis salvos
+        // Carregar perfis e configurações salvos
         let saved_profiles = crate::persistence::load_profiles()?;
-        if !saved_profiles.is_empty() {
-            let mut profiles = state.lock().unwrap();
-            *profiles = saved_profiles;
-            println!("[WindowManager] Loaded {} profiles from disk", profiles.len());
+        let saved_settings = crate::persistence::load_settings()?;
+        
+        {
+            let mut data = state.lock().unwrap();
+            data.profiles = saved_profiles;
+            data.settings = saved_settings;
+            println!("[WindowManager] Loaded {} profiles and settings from disk", data.profiles.len());
         }
         
         let icon = Self::load_icon().ok();
@@ -83,16 +87,40 @@ impl WindowManager {
             proxy.clone(),
         )?;
 
-        Ok(Self {
+        let mut manager = Self {
             window,
             toolbar_webview,
             welcome_webview,
             profile_webviews: HashMap::new(),
             state,
             current_profile_uuid: None,
-            proxy,
             web_contexts: HashMap::new(),
-        })
+            tray: None,
+        };
+
+        if manager.state.lock().unwrap().settings.enable_tray {
+            match Self::setup_tray() {
+                Ok(tray) => manager.tray = Some(tray),
+                Err(e) => eprintln!("[WindowManager] Failed to setup tray: {}", e),
+            }
+        }
+
+        Ok(manager)
+    }
+
+    fn setup_tray() -> Result<tray_icon::TrayIcon, Box<dyn std::error::Error>> {
+        let icon_bytes = include_bytes!("../icons/128x128.png");
+        let image = image::load_from_memory(icon_bytes)?.to_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        let tray_icon = tray_icon::Icon::from_rgba(rgba, width, height)?;
+
+        let tray = TrayIconBuilder::new()
+            .with_icon(tray_icon)
+            .with_tooltip("Feather Alloy")
+            .build()?;
+            
+        Ok(tray)
     }
 
     fn load_icon() -> Result<tao::window::Icon, Box<dyn std::error::Error>> {
@@ -350,12 +378,12 @@ impl WindowManager {
     }
 
     pub fn navigate_to_profile(&mut self, uuid: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let profiles = self.state.lock().unwrap();
+        let data = self.state.lock().unwrap();
         
-        if let Some(profile) = profiles.iter().find(|p| p.uuid == uuid) {
+        if let Some(profile) = data.profiles.iter().find(|p| p.uuid == uuid) {
             let url = profile.url.clone();
             let name = profile.name.clone();
-            drop(profiles);
+            drop(data);
             
             println!("[WindowManager] Navigating to profile: {} ({})", name, url);
             
@@ -412,15 +440,15 @@ impl WindowManager {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let profile = crate::profile::WebProfile::new(name.clone(), url.clone(), icon_path, user_agent);
         
-        let mut profiles = self.state.lock().unwrap();
-        profiles.push(profile.clone());
+        let mut data = self.state.lock().unwrap();
+        data.profiles.push(profile.clone());
         
         // Salvar perfis em disco
-        if let Err(e) = crate::persistence::save_profiles(&profiles) {
+        if let Err(e) = crate::persistence::save_profiles(&data.profiles) {
             eprintln!("[WindowManager] Failed to save profiles: {}", e);
         }
         
-        drop(profiles);
+        drop(data);
         
         println!("[WindowManager] Profile added: {} ({})", name, url);
         
@@ -431,9 +459,9 @@ impl WindowManager {
     }
 
     pub fn update_toolbar_profiles(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let profiles = self.state.lock().unwrap();
-        let profiles_json = serde_json::to_string(&*profiles)?;
-        drop(profiles);
+        let data = self.state.lock().unwrap();
+        let profiles_json = serde_json::to_string(&data.profiles)?;
+        drop(data);
         
         let script = format!(
             "if (window.handleProfilesUpdate) {{ window.handleProfilesUpdate({}); }}",
@@ -470,6 +498,8 @@ impl WindowManager {
     pub fn run(mut self, event_loop: EventLoop<AppEvent>) -> ! {
         let _ = self.update_toolbar_profiles();
         
+        let tray_receiver = TrayIconEvent::receiver();
+
         event_loop.run(move |event, _elwt, control_flow| {
             *control_flow = ControlFlow::Wait;
 
@@ -478,6 +508,13 @@ impl WindowManager {
                 while gtk::events_pending() {
                     gtk::main_iteration_do(false);
                 }
+            }
+
+            // Processar eventos da bandeja
+            if let Ok(event) = tray_receiver.try_recv() {
+                println!("[WindowManager] Tray event: {:?}", event);
+                let is_visible = self.window.is_visible();
+                self.window.set_visible(!is_visible);
             }
 
             match event {
@@ -507,7 +544,15 @@ impl WindowManager {
                     event: WindowEvent::CloseRequested,
                     ..
                 } => {
-                    *control_flow = ControlFlow::Exit;
+                    let settings = self.state.lock().unwrap().settings.clone();
+                    
+                    if settings.hide_on_close {
+                        self.window.set_visible(false);
+                    } else if settings.minimize_on_close {
+                        self.window.set_minimized(true);
+                    } else {
+                        *control_flow = ControlFlow::Exit;
+                    }
                 }
                 Event::WindowEvent {
                     event: WindowEvent::Resized(new_size),

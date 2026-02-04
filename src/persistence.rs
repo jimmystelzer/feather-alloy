@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
-use crate::profile::WebProfile;
+use crate::profile::{WebProfile, AppSettings};
 
 /// Retorna o caminho do arquivo de configuração de perfis
 pub fn get_profiles_file_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -48,6 +48,52 @@ pub fn load_profiles() -> Result<Vec<WebProfile>, Box<dyn std::error::Error>> {
             eprintln!("[Persistence] Failed to parse profiles file: {}", e);
             eprintln!("[Persistence] Starting with empty list");
             Ok(Vec::new())
+        }
+    }
+}
+
+/// Retorna o caminho do arquivo de configurações
+pub fn get_settings_file_path() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let config_dir = dirs::data_dir()
+        .ok_or("Failed to get data directory")?
+        .join("feather-alloy");
+    
+    // Criar diretório se não existir
+    fs::create_dir_all(&config_dir)?;
+    
+    Ok(config_dir.join("settings.json"))
+}
+
+/// Salva as configurações em arquivo JSON
+pub fn save_settings(settings: &AppSettings) -> Result<(), Box<dyn std::error::Error>> {
+    let file_path = get_settings_file_path()?;
+    let json = serde_json::to_string_pretty(settings)?;
+    
+    fs::write(&file_path, json)?;
+    println!("[Persistence] Settings saved to: {:?}", file_path);
+    
+    Ok(())
+}
+
+/// Carrega as configurações do arquivo JSON
+pub fn load_settings() -> Result<AppSettings, Box<dyn std::error::Error>> {
+    let file_path = get_settings_file_path()?;
+    
+    if !file_path.exists() {
+        println!("[Persistence] No settings file found, using defaults");
+        return Ok(AppSettings::default());
+    }
+    
+    let json = fs::read_to_string(&file_path)?;
+    
+    match serde_json::from_str::<AppSettings>(&json) {
+        Ok(settings) => {
+            println!("[Persistence] Loaded settings from: {:?}", file_path);
+            Ok(settings)
+        }
+        Err(e) => {
+            eprintln!("[Persistence] Failed to parse settings file: {}, using defaults", e);
+            Ok(AppSettings::default())
         }
     }
 }

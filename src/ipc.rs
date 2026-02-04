@@ -76,39 +76,39 @@ impl IpcHandler {
             IpcMessage::AddProfile { name, url, icon_path, user_agent } => {
                 let profile = crate::profile::WebProfile::new(name, url, icon_path, user_agent);
                 
-                let mut profiles = self.state.lock().unwrap();
-                profiles.push(profile.clone());
-                drop(profiles);
+                let mut data = self.state.lock().unwrap();
+                data.profiles.push(profile.clone());
+                drop(data);
                 
                 Some(IpcMessage::ProfileAdded { profile })
             }
             
             IpcMessage::RemoveProfile { uuid } => {
-                let mut profiles = self.state.lock().unwrap();
-                profiles.retain(|p| p.uuid != uuid);
-                drop(profiles);
+                let mut data = self.state.lock().unwrap();
+                data.profiles.retain(|p| p.uuid != uuid);
+                drop(data);
                 
                 Some(IpcMessage::ProfileRemoved { uuid })
             }
             
             IpcMessage::GetProfiles => {
-                let profiles = self.state.lock().unwrap();
-                let profiles_list = profiles.clone();
-                drop(profiles);
+                let data = self.state.lock().unwrap();
+                let profiles_list = data.profiles.clone();
+                drop(data);
                 
                 Some(IpcMessage::ProfilesList { profiles: profiles_list })
             }
             
             IpcMessage::ShowProfile { uuid } => {
-                let profiles = self.state.lock().unwrap();
-                if let Some(profile) = profiles.iter().find(|p| p.uuid == uuid) {
+                let data = self.state.lock().unwrap();
+                if let Some(profile) = data.profiles.iter().find(|p| p.uuid == uuid) {
                     let url = profile.url.clone();
                     let user_agent = profile.user_agent.clone();
-                    drop(profiles);
+                    drop(data);
                     
                     Some(IpcMessage::NavigateToUrl { url, user_agent })
                 } else {
-                    drop(profiles);
+                    drop(data);
                     Some(IpcMessage::Error {
                         message: "Perfil não encontrado".to_string(),
                     })

@@ -32,9 +32,37 @@ impl WebProfile {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppSettings {
+    pub minimize_on_open: bool,
+    pub minimize_on_close: bool,
+    pub hide_on_close: bool,
+    pub enable_tray: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            minimize_on_open: false,
+            minimize_on_close: false,
+            hide_on_close: true,
+            enable_tray: true,
+        }
+    }
+}
+
+/// Dados globais da aplicação (perfis e configurações)
+pub struct AppData {
+    pub profiles: Vec<WebProfile>,
+    pub settings: AppSettings,
+}
+
 /// Estado global da aplicação
-pub type AppState = Arc<Mutex<Vec<WebProfile>>>;
+pub type AppState = Arc<Mutex<AppData>>;
 
 pub fn create_app_state() -> AppState {
-    Arc::new(Mutex::new(Vec::new()))
+    Arc::new(Mutex::new(AppData {
+        profiles: Vec::new(),
+        settings: AppSettings::default(),
+    }))
 }
