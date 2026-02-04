@@ -31,10 +31,14 @@ Aplicação desktop ultra-leve inspirada no Ferdium, desenvolvida em **Rust** co
 * **Composição:**  
   * **Lista de Perfis:** Coluna vertical de botões circulares ou arredondados.  
     * Cada botão representa uma aplicação web.  
-    * **Ícone:** Prioridade para ícone customizado (PNG/SVG local). Caso nulo, buscar favicon.ico da URL configurada.  
+    * **Ícone:** 
+      * Usuário pode fazer upload de ícone customizado (salvo na pasta do perfil).
+      * Pode remover o ícone customizado.
+      * Se não houver ícone customizado, o sistema tenta baixar o favicon da URL configurada.
+      * O ícone é persistido em `app_data_dir/profiles/{uuid}/icon.{ext}` ou `favicon.ico`.
     * **Interação Esquerda (Clique):** Alterna a visibilidade da WebView correspondente no painel principal através de comandos Tauri.  
     * **Interação Direita (Context Menu)::** Abre menu de contexto HTML/CSS com as opções: "Atualizar conteúdo", "Atualizar ícone", "Editar Perfil" e "Remover Perfil".  
-  * **Botão Adicionar ("+"):** Abre modal HTML para cadastro de novo serviço (Nome, URL, User-Agent, Ícone).  
+  * **Botão Adicionar ("+"):** Abre modal HTML para cadastro de novo serviço (Nome, URL, User-Agent, Upload de Ícone).  
   * **Botão Configurações (Engrenagem):** Posicionado na base da barra lateral.
 
 ### **3.2. Painel de Conteúdo (Main View)**

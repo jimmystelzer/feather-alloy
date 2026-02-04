@@ -3,6 +3,7 @@ pub mod ipc;
 pub mod window_manager;
 pub mod persistence;
 pub mod context_menu;
+pub mod favicon;
 
 use profile::create_app_state;
 use window_manager::{WindowManager, AppEvent};

@@ -114,6 +114,71 @@ pub fn delete_profile_data(uuid: &str) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
+
+/// Salva o ícone do perfil na pasta de dados do perfil
+pub fn save_profile_icon(uuid: &str, source_path: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let source = PathBuf::from(source_path);
+    if !source.exists() {
+        return Err(format!("Source icon not found: {}", source_path).into());
+    }
+
+    let extension = source.extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("png");
+    
+    let profile_dir = dirs::data_dir()
+        .ok_or("Failed to get data directory")?
+        .join("feather-alloy")
+        .join("profiles")
+        .join(uuid);
+
+    // Ensure dir exists
+    fs::create_dir_all(&profile_dir)?;
+
+    let dest_filename = format!("icon.{}", extension);
+    let dest_path = profile_dir.join(&dest_filename);
+
+    fs::copy(&source, &dest_path)?;
+    println!("[Persistence] Icon copied to: {:?}", dest_path);
+
+    // Return relative path: profiles/{uuid}/{filename}
+    let relative_path = format!("profiles/{}/{}", uuid, dest_filename);
+    Ok(relative_path)
+}
+
+/// Remove o ícone do perfil se existir
+pub fn delete_profile_icon(uuid: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let profile_dir = dirs::data_dir()
+        .ok_or("Failed to get data directory")?
+        .join("feather-alloy")
+        .join("profiles")
+        .join(uuid);
+
+    if !profile_dir.exists() {
+        return Ok(());
+    }
+
+    // List files and delete any that look like icons
+    for entry in fs::read_dir(&profile_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if let Some(stem) = path.file_stem() {
+            if stem == "icon" {
+                fs::remove_file(&path)?;
+                println!("[Persistence] Deleted icon: {:?}", path);
+            }
+        }
+    }
+    
+    // Also delete favicon.ico if it exists
+    let favicon = profile_dir.join("favicon.ico");
+    if favicon.exists() {
+        fs::remove_file(favicon)?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

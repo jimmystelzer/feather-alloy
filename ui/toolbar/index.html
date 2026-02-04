@@ -74,11 +74,17 @@
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.5);
         }
 
+        .profile-btn.has-icon {
+            background: white;
+            padding: 3px;
+        }
+
         .profile-btn img {
             width: 100%;
             height: 100%;
             object-fit: cover;
             border-radius: 50%;
+            display: block; /* Ensure no extra space */
         }
 
         .profile-btn .initial {
@@ -474,8 +480,15 @@
             
             // Se tem ícone, usar imagem, senão usar inicial do nome
             if (profile.icon_path) {
+                btn.classList.add('has-icon');
                 const img = document.createElement('img');
-                img.src = profile.icon_path;
+                
+                let src = profile.icon_path;
+                if (src && !src.startsWith('asset://') && !src.startsWith('http') && !src.startsWith('data:')) {
+                    src = 'asset://' + src;
+                }
+                
+                img.src = src;
                 img.alt = profile.name;
                 btn.appendChild(img);
             } else {

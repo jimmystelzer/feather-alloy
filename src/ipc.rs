@@ -38,6 +38,7 @@ pub enum IpcMessage {
     },
     
     // Edição de Perfil
+    SelectIcon,
     UpdateProfile {
         uuid: String,
         name: String,
@@ -133,6 +134,8 @@ impl IpcHandler {
                 Some(IpcMessage::ProfileRemoved { uuid })
             }
             
+            IpcMessage::SelectIcon => None,
+
             IpcMessage::GetProfiles => {
                 let data = self.state.lock().unwrap();
                 let profiles_list = data.profiles.clone();

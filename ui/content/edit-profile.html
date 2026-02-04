@@ -27,7 +27,8 @@
             padding: 40px;
             max-width: 500px;
             width: 100%;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            /* Optimized shadow for performance on VcXSrv */
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); 
         }
 
         h1 {
@@ -56,6 +57,8 @@
             border-radius: 8px;
             font-size: 14px;
             transition: border-color 0.3s;
+            position: relative;
+            z-index: 10;
         }
 
         input[type="text"]:focus,
@@ -109,13 +112,19 @@
 </head>
 <body>
     <div class="container">
-        <h1>✏️ Editar Perfil</h1>
+        <h1>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" width="24" height="24" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+            </svg>
+            Editar Perfil
+        </h1>
         <form id="editProfileForm">
             <input type="hidden" id="profileUuid">
             
             <div class="form-group">
                 <label for="profileName">Nome do Serviço</label>
-                <input type="text" id="profileName" required placeholder="Ex: WhatsApp Pessoal">
+                <!-- Added autofocus -->
+                <input type="text" id="profileName" required placeholder="Ex: WhatsApp Pessoal" autofocus>
             </div>
 
             <div class="form-group">
@@ -125,9 +134,21 @@
             </div>
 
             <div class="form-group">
-                <label for="profileIconPath">Caminho do Ícone (opcional)</label>
-                <input type="text" id="profileIconPath" placeholder="/caminho/para/icone.png">
-                <div class="help-text">Deixe em branco para buscar automaticamente</div>
+                <label for="profileIconPath">Ícone Personalizado</label>
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                    <img id="iconPreview" src="" alt="Icon Preview" style="width: 32px; height: 32px; border-radius: 4px; object-fit: cover; background: #eee; display: none;">
+                    <div id="defaultIconPreview" style="width: 32px; height: 32px; border-radius: 4px; background: #eee; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #666;">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" width="32" height="32" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+                        </svg>
+                    </div>
+                    
+                    <button type="button" id="btnSelectIcon" class="btn-secondary" style="padding: 8px 12px; font-size: 14px;">📁 Escolher Ícone</button>
+                    <button type="button" id="btnRemoveIcon" class="btn-secondary" style="padding: 8px 12px; font-size: 14px; background: #ffebee; color: #c62828; display: none;">🗑️ Remover</button>
+                </div>
+                <!-- Hidden input to store the actual path -->
+                <input type="hidden" id="profileIconPath">
+                <div class="help-text">Se não for definido, tentaremos baixar o favicon automaticamente.</div>
             </div>
 
             <div class="form-group">
@@ -148,11 +169,71 @@
         window.loadProfileData = function(profile) {
             console.log('[EditProfile] Loading profile data:', profile);
             document.getElementById('profileUuid').value = profile.uuid;
-            document.getElementById('profileName').value = profile.name;
-            document.getElementById('profileUrl').value = profile.url;
-            document.getElementById('profileIconPath').value = profile.icon_path || '';
+            
+            const nameInput = document.getElementById('profileName');
+            nameInput.value = profile.name;
+            nameInput.disabled = false;
+            
+            const urlInput = document.getElementById('profileUrl');
+            urlInput.value = profile.url;
+            urlInput.disabled = false;
+
             document.getElementById('profileUserAgent').value = profile.user_agent || '';
+
+            // Handle Icon
+            updateIconPreview(profile.icon_path);
+
+            // Force focus
+            setTimeout(() => {
+                nameInput.focus();
+                console.log('[EditProfile] Forced focus on name input');
+            }, 100);
         };
+
+        function updateIconPreview(path) {
+            console.log('[EditProfile] Updating icon preview:', path);
+            document.getElementById('profileIconPath').value = path || '';
+            const img = document.getElementById('iconPreview');
+            const defaultIcon = document.getElementById('defaultIconPreview');
+            const btnRemove = document.getElementById('btnRemoveIcon');
+
+            if (path) {
+                // If it's a local path not starting with asset://, prepend it
+                // But typically backend will send asset:// if needed, or we handle it here.
+                // For now, assume backend sends valid URL or we need to prepend 'asset://' for absolute paths
+                let src = path;
+                if (src && !src.startsWith('asset://') && !src.startsWith('http') && !src.startsWith('data:')) {
+                    src = 'asset://' + src;
+                }
+                
+                img.src = src;
+                img.style.display = 'block';
+                defaultIcon.style.display = 'none';
+                btnRemove.style.display = 'block';
+            } else {
+                img.style.display = 'none';
+                defaultIcon.style.display = 'flex';
+                btnRemove.style.display = 'none';
+            }
+        }
+
+        // Called from Backend after file dialog
+        window.updateSelectedIcon = function(path) {
+            console.log('[EditProfile] Selected icon:', path);
+            updateIconPreview(path);
+        };
+
+        document.getElementById('btnSelectIcon').addEventListener('click', function() {
+            if (window.ipc) {
+                window.ipc.postMessage(JSON.stringify({
+                    type: 'SelectIcon'
+                }));
+            }
+        });
+
+        document.getElementById('btnRemoveIcon').addEventListener('click', function() {
+            updateIconPreview(null);
+        });
 
         document.getElementById('editProfileForm').addEventListener('submit', function(e) {
             e.preventDefault();
@@ -165,22 +246,28 @@
 
             console.log('[EditProfile] Updating profile:', { uuid, name, url });
 
-            window.ipc.postMessage(JSON.stringify({
-                type: 'UpdateProfile',
-                payload: {
-                    uuid,
-                    name,
-                    url,
-                    icon_path: iconPath,
-                    user_agent: userAgent
-                }
-            }));
+            if (window.ipc) {
+                window.ipc.postMessage(JSON.stringify({
+                    type: 'UpdateProfile',
+                    payload: {
+                        uuid,
+                        name,
+                        url,
+                        icon_path: iconPath,
+                        user_agent: userAgent
+                    }
+                }));
+            } else {
+                console.error('[EditProfile] IPC not found!');
+            }
         });
 
         function cancelEdit() {
-            window.ipc.postMessage(JSON.stringify({
-                type: 'ShowWelcome'
-            }));
+            if (window.ipc) {
+                window.ipc.postMessage(JSON.stringify({
+                    type: 'ShowWelcome'
+                }));
+            }
         }
     </script>
 </body>

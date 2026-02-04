@@ -48,6 +48,14 @@ pub enum AppEvent {
     RemoveProfile {
         uuid: String,
     },
+    SelectIcon,
+    FaviconFetched {
+        uuid: String,
+        path: String,
+    },
+    IconSelected {
+        path: String,
+    },
     UpdateToolbar,
     ShowWelcome,
     ShowSettings,
@@ -207,18 +215,28 @@ impl WindowManager {
         let uri = request.uri();
         
         // Em WRY, o esquema asset://caminho/para/arquivo pode vir com o host sendo a primeira parte do caminho
-        let mut path_str = if let Some(host) = uri.host() {
+        let path_str = if let Some(host) = uri.host() {
             format!("{}{}", host, uri.path())
         } else {
             uri.path().to_string()
         };
         
         // Remover barra inicial se existir para facilitar o join com o path relativo
-        if path_str.starts_with('/') {
-            path_str.remove(0);
-        }
+        // if path_str.starts_with('/') {
+        //    path_str.remove(0);
+        // }
 
-        let path = std::path::PathBuf::from(&path_str);
+        let path = if path_str.starts_with("profiles/") {
+             // Resolve against data dir
+             if let Some(data_dir) = dirs::data_dir() {
+                 data_dir.join("feather-alloy").join(&path_str)
+             } else {
+                 std::path::PathBuf::from(&path_str)
+             }
+        } else {
+             std::path::PathBuf::from(&path_str)
+        };
+        
         // println!("[AssetProtocol] Requesting: {:?} (from URI: {})", path, uri);
         
         match std::fs::read(&path) {
@@ -398,6 +416,9 @@ impl WindowManager {
                                 icon_path,
                                 user_agent,
                             });
+                        }
+                        IpcMessage::SelectIcon => {
+                            let _ = proxy.send_event(AppEvent::SelectIcon);
                         }
                         IpcMessage::UpdateSettings { minimize_on_open, minimize_on_close, hide_on_close, enable_tray } => {
                             let _ = proxy.send_event(AppEvent::UpdateSettings {
@@ -584,7 +605,23 @@ impl WindowManager {
         icon_path: Option<String>,
         user_agent: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let profile = crate::profile::WebProfile::new(name.clone(), url.clone(), icon_path, user_agent);
+        let mut profile = crate::profile::WebProfile::new(name.clone(), url.clone(), icon_path.clone(), user_agent);
+        
+        // Se houver ícone, copiar para a pasta do perfil
+        if let Some(path) = &icon_path {
+            match crate::persistence::save_profile_icon(&profile.uuid, path) {
+                Ok(new_path) => {
+                    println!("[WindowManager] Icon saved for new profile: {}", new_path);
+                    profile.icon_path = Some(new_path);
+                }
+                Err(e) => {
+                    eprintln!("[WindowManager] Failed to save icon for new profile: {}", e);
+                }
+            }
+        } else {
+             // No icon provided, try to fetch favicon
+             self.trigger_favicon_fetch(profile.uuid.clone(), url.clone());
+        }
         
         let mut data = self.state.lock().unwrap();
         data.profiles.push(profile.clone());
@@ -617,7 +654,44 @@ impl WindowManager {
         if let Some(profile) = data.profiles.iter_mut().find(|p| p.uuid == uuid) {
             profile.name = name.clone();
             profile.url = url.clone();
-            profile.icon_path = icon_path;
+            
+            // Handle Icon update
+            if profile.icon_path != icon_path {
+                // If new icon provided
+                if let Some(path) = &icon_path {
+                    // Only copy if it's a different path (and probably not already in the store, logic simplified here)
+                    // If it is the internal path, we skip.
+                    let is_internal = path.contains(&uuid) && path.contains("feather-alloy");
+                    
+                    if !is_internal {
+                        match crate::persistence::save_profile_icon(&uuid, path) {
+                            Ok(new_path) => {
+                                println!("[WindowManager] Icon updated for profile {}: {}", uuid, new_path);
+                                profile.icon_path = Some(new_path);
+                            }
+                            Err(e) => {
+                                eprintln!("[WindowManager] Failed to save icon: {}", e);
+                                // Fallback to provided path
+                                profile.icon_path = Some(path.clone());
+                            }
+                        }
+                    } else {
+                         profile.icon_path = Some(path.clone());
+                    }
+                } else {
+                    // User removed the icon
+                    if let Err(e) = crate::persistence::delete_profile_icon(&uuid) {
+                        eprintln!("[WindowManager] Failed to delete icon: {}", e);
+                    }
+                    profile.icon_path = None;
+                    // Trigger fetch since we are now without icon
+                    self.trigger_favicon_fetch(uuid.clone(), url.clone());
+                }
+            } else if profile.url != url && profile.icon_path.is_none() {
+                 // URL changed and we are using default/favicon, try to fetch new one
+                 self.trigger_favicon_fetch(uuid.clone(), url.clone());
+            }
+            
             profile.user_agent = user_agent;
             
             // Salvar perfis em disco
@@ -660,8 +734,20 @@ impl WindowManager {
     }
 
     pub fn update_profile_icon(&mut self, uuid: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // TODO: Implementar busca de favicon
         println!("[WindowManager] Update icon for profile {}", uuid);
+        
+        // Obter URL do perfil
+        let data = self.state.lock().unwrap();
+        if let Some(profile) = data.profiles.iter().find(|p| p.uuid == uuid) {
+            let url = profile.url.clone();
+            drop(data);
+            
+            // Trigger fetch
+            self.trigger_favicon_fetch(uuid.to_string(), url);
+        } else {
+            drop(data);
+        }
+        
         Ok(())
     }
 
@@ -793,6 +879,86 @@ impl WindowManager {
         
         self.current_profile_uuid = None;
         println!("[WindowManager] Settings screen loaded");
+        Ok(())
+    }
+
+    pub fn select_icon(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let proxy = self.proxy.clone();
+        
+        std::thread::spawn(move || {
+            let file = rfd::FileDialog::new()
+                .add_filter("Icons", &["png", "jpg", "jpeg", "svg", "ico"])
+                .set_title("Escolher ícone")
+                .pick_file();
+
+            if let Some(path) = file {
+                let path_str = path.to_string_lossy().to_string();
+                // Try to make sure it's absolute
+                let abs_path = if path.is_absolute() {
+                    path_str.clone()
+                } else {
+                    match std::fs::canonicalize(&path) {
+                        Ok(p) => p.to_string_lossy().to_string(),
+                        Err(_) => path_str.clone()
+                    }
+                };
+
+                println!("[WindowManager] Selected icon: {}", abs_path);
+                
+                let _ = proxy.send_event(AppEvent::IconSelected { path: abs_path });
+            }
+        });
+
+        Ok(())
+    }
+
+    pub fn trigger_favicon_fetch(&self, uuid: String, url: String) {
+        let proxy = self.proxy.clone();
+        std::thread::spawn(move || {
+            println!("[WindowManager] Fetching favicon for {}", url);
+            match crate::favicon::fetch_favicon(&url) {
+                Ok(result) => {
+                    let profile_dir = dirs::data_dir()
+                        .unwrap() // Safe enough
+                        .join("feather-alloy")
+                        .join("profiles")
+                        .join(&uuid);
+                        
+                    std::fs::create_dir_all(&profile_dir).unwrap();
+                    let filename = format!("favicon.{}", result.extension);
+                    let path = profile_dir.join(&filename);
+                    
+                    if let Ok(_) = std::fs::write(&path, result.bytes) {
+                        let relative_path = format!("profiles/{}/{}", uuid, filename);
+                        let _ = proxy.send_event(crate::window_manager::AppEvent::FaviconFetched {
+                            uuid,
+                            path: relative_path,
+                        });
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[WindowManager] Error fetching favicon: {}", e);
+                }
+            }
+        });
+    }
+
+    pub fn handle_favicon_fetched(&mut self, uuid: String, path: String) -> Result<(), Box<dyn std::error::Error>> {
+        let mut data = self.state.lock().unwrap();
+        if let Some(profile) = data.profiles.iter_mut().find(|p| p.uuid == uuid) {
+            // Only update if user hasn't set a custom icon in the meantime?
+            // For now, simple: Just update.
+            profile.icon_path = Some(path.clone());
+            println!("[WindowManager] Favicon applied for {}: {}", uuid, path);
+            
+            // Save
+            if let Err(e) = crate::persistence::save_profiles(&data.profiles) {
+                eprintln!("[WindowManager] Failed to save profiles after favicon update: {}", e);
+            }
+            drop(data);
+            
+            self.update_toolbar_profiles()?;
+        }
         Ok(())
     }
 
@@ -949,6 +1115,20 @@ impl WindowManager {
                         }
                         AppEvent::UpdateSettings { minimize_on_open, minimize_on_close, hide_on_close, enable_tray } => {
                             let _ = self.update_settings(minimize_on_open, minimize_on_close, hide_on_close, enable_tray);
+                        }
+                        AppEvent::SelectIcon => {
+                            if let Err(e) = self.select_icon() {
+                                eprintln!("[WindowManager] Failed to select icon: {}", e);
+                            }
+                        }
+                        AppEvent::FaviconFetched { uuid, path } => {
+                            let _ = self.handle_favicon_fetched(uuid, path);
+                        }
+                        AppEvent::IconSelected { path } => {
+                             let script = format!("window.updateSelectedIcon('{}')", path.replace("\\", "\\\\").replace("'", "\\'"));
+                             if let Err(e) = self.welcome_webview.evaluate_script(&script) {
+                                 eprintln!("[WindowManager] Failed to update selected icon in UI: {}", e);
+                             }
                         }
                         AppEvent::ToggleWindow => {
                             println!("[WindowManager] >>> TOGGLE WINDOW EVENT");
