@@ -285,6 +285,234 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script>
+        // Estado local
+        let profiles = [];
+        let activeProfileUuid = null;
+
+        // Inicialização
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('[Toolbar] DOMContentLoaded event fired');
+            initializeEventListeners();
+            loadProfiles();
+        });
+
+        function initializeEventListeners() {
+            console.log('[Toolbar] Initializing event listeners');
+            
+            // Botão adicionar
+            const addBtn = document.getElementById('addBtn');
+            if (addBtn) {
+                addBtn.addEventListener('click', openAddModal);
+                console.log('[Toolbar] Add button listener attached');
+            } else {
+                console.error('[Toolbar] Add button not found!');
+            }
+            
+            // Botão configurações
+            const settingsBtn = document.getElementById('settingsBtn');
+            if (settingsBtn) {
+                settingsBtn.addEventListener('click', () => {
+                    sendMessage({ type: 'ShowSettings' });
+                });
+            }
+            
+            // Modal
+            const closeModalBtn = document.getElementById('closeModalBtn');
+            if (closeModalBtn) {
+                closeModalBtn.addEventListener('click', closeAddModal);
+            }
+            
+            const cancelBtn = document.getElementById('cancelBtn');
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', closeAddModal);
+            }
+            
+            const addServiceForm = document.getElementById('addServiceForm');
+            if (addServiceForm) {
+                addServiceForm.addEventListener('submit', handleAddProfile);
+            }
+            
+            // Fechar modal ao clicar fora
+            const modal = document.getElementById('addServiceModal');
+            if (modal) {
+                modal.addEventListener('click', (e) => {
+                    if (e.target.id === 'addServiceModal') {
+                        closeAddModal();
+                    }
+                });
+            }
+        }
+
+        function openAddModal() {
+            console.log('[Toolbar] openAddModal called');
+            sendMessage({ type: 'ShowAddProfileForm' });
+        }
+
+        function closeAddModal() {
+            const modal = document.getElementById('addServiceModal');
+            if (modal) {
+                modal.classList.remove('active');
+            }
+            const form = document.getElementById('addServiceForm');
+            if (form) {
+                form.reset();
+            }
+        }
+
+        function handleAddProfile(e) {
+            e.preventDefault();
+            
+            const name = document.getElementById('serviceName').value;
+            const url = document.getElementById('serviceUrl').value;
+            const userAgent = document.getElementById('userAgent').value || null;
+            
+            sendMessage({
+                type: 'AddProfile',
+                payload: {
+                    name,
+                    url,
+                    icon_path: null,
+                    user_agent: userAgent
+                }
+            });
+            
+            closeAddModal();
+        }
+
+        function loadProfiles() {
+            console.log('[Toolbar] Loading profiles');
+            sendMessage({ type: 'GetProfiles' });
+        }
+
+        function renderProfiles() {
+            console.log('[Toolbar] Rendering profiles:', profiles.length);
+            const container = document.getElementById('profilesContainer');
+            if (!container) {
+                console.error('[Toolbar] Profiles container not found!');
+                return;
+            }
+            
+            container.innerHTML = '';
+            
+            profiles.forEach(profile => {
+                const btn = createProfileButton(profile);
+                container.appendChild(btn);
+            });
+        }
+
+        function createProfileButton(profile) {
+            const btn = document.createElement('button');
+            btn.className = 'profile-btn';
+            btn.title = profile.name;
+            btn.dataset.uuid = profile.uuid;
+            
+            if (profile.uuid === activeProfileUuid) {
+                btn.classList.add('active');
+            }
+            
+            // Se tem ícone, usar imagem, senão usar inicial do nome
+            if (profile.icon_path) {
+                const img = document.createElement('img');
+                img.src = profile.icon_path;
+                img.alt = profile.name;
+                btn.appendChild(img);
+            } else {
+                const initial = document.createElement('span');
+                initial.className = 'initial';
+                initial.textContent = profile.name.charAt(0);
+                btn.appendChild(initial);
+            }
+            
+            btn.addEventListener('click', () => {
+                selectProfile(profile.uuid);
+            });
+            
+            // Context menu (botão direito)
+            btn.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                showContextMenu(profile, e.clientX, e.clientY);
+            });
+            
+            return btn;
+        }
+
+        function selectProfile(uuid) {
+            console.log('[Toolbar] Selecting profile:', uuid);
+            activeProfileUuid = uuid;
+            renderProfiles();
+            
+            sendMessage({
+                type: 'ShowProfile',
+                payload: { uuid }
+            });
+        }
+
+        function showContextMenu(profile, x, y) {
+            // TODO: Implementar menu de contexto para editar/remover perfil
+            console.log('[Toolbar] Context menu for profile:', profile);
+        }
+
+        // Comunicação IPC
+        function sendMessage(message) {
+            console.log('[Toolbar] Sending message:', message);
+            if (window.ipc) {
+                window.ipc.postMessage(JSON.stringify(message));
+                console.log('[Toolbar] Message sent successfully');
+            } else {
+                console.error('[Toolbar] IPC not available');
+            }
+        }
+
+        // Receber mensagens do backend
+        window.addEventListener('message', (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                handleBackendMessage(message);
+            } catch (e) {
+                console.error('[Toolbar] Failed to parse message:', e);
+            }
+        });
+
+        function handleBackendMessage(message) {
+            console.log('[Toolbar] Received message:', message);
+            
+            switch (message.type) {
+                case 'ProfileAdded':
+                    profiles.push(message.payload.profile);
+                    renderProfiles();
+                    break;
+                    
+                case 'ProfileRemoved':
+                    profiles = profiles.filter(p => p.uuid !== message.payload.uuid);
+                    if (activeProfileUuid === message.payload.uuid) {
+                        activeProfileUuid = null;
+                    }
+                    renderProfiles();
+                    break;
+                    
+                case 'ProfilesList':
+                    profiles = message.payload.profiles;
+                    renderProfiles();
+                    break;
+                    
+                case 'Error':
+                    console.error('[Toolbar] Backend error:', message.payload.message);
+                    alert('Erro: ' + message.payload.message);
+                    break;
+            }
+        }
+
+        // Função global chamada pelo backend via evaluate_script
+        window.handleProfilesUpdate = function(profilesList) {
+            console.log('[Toolbar] Profiles updated from backend:', profilesList);
+            profiles = profilesList;
+            renderProfiles();
+        };
+
+        // Carregar perfis ao iniciar
+        console.log('[Toolbar] Script loaded, will load profiles');
+        loadProfiles();
+    </script>
 </body>
 </html>

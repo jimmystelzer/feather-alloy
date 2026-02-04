@@ -171,3 +171,14 @@ function handleBackendMessage(message) {
             break;
     }
 }
+
+// Função global chamada pelo backend via evaluate_script
+window.handleProfilesUpdate = function(profilesList) {
+    console.log('Profiles updated from backend:', profilesList);
+    profiles = profilesList;
+    renderProfiles();
+};
+
+// Carregar perfis ao iniciar
+loadProfiles();
+

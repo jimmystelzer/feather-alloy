@@ -4,7 +4,7 @@ mod window_manager;
 
 use tao::event_loop::EventLoop;
 use profile::create_app_state;
-use window_manager::WindowManager;
+use window_manager::{WindowManager, AppEvent};
 
 #[cfg(target_os = "linux")]
 use gtk;
@@ -19,8 +19,8 @@ pub fn run() {
     // Criar estado da aplicação
     let state = create_app_state();
 
-    // Criar event loop
-    let event_loop = EventLoop::new();
+    // Criar event loop com eventos customizados
+    let event_loop = tao::event_loop::EventLoopBuilder::<AppEvent>::with_user_event().build();
 
     // Criar window manager com as duas webviews
     let window_manager = WindowManager::new(&event_loop, state)

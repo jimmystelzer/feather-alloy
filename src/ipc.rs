@@ -18,6 +18,8 @@ pub enum IpcMessage {
         uuid: String,
     },
     GetProfiles,
+    ShowAddProfileForm,
+    CancelAddProfile,
     
     // Mensagens do Backend para a Toolbar
     ProfileAdded {
