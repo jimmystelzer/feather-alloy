@@ -33,11 +33,13 @@ pub enum AppEvent {
 pub struct WindowManager {
     window: Window,
     toolbar_webview: WebView,
-    content_webview: Option<WebView>,
+    welcome_webview: WebView,
+    // WebViews por perfil (UUID -> WebView)
+    profile_webviews: HashMap<String, WebView>,
     state: AppState,
     current_profile_uuid: Option<String>,
     proxy: EventLoopProxy<AppEvent>,
-    // Armazenar WebContexts por perfil
+    // WebContexts por perfil
     web_contexts: HashMap<String, WebContext>,
 }
 
@@ -46,7 +48,6 @@ impl WindowManager {
         event_loop: &EventLoop<AppEvent>,
         state: AppState,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        // Criar janela principal
         let window = WindowBuilder::new()
             .with_title("Feather Alloy")
             .with_inner_size(LogicalSize::new(1200.0, 800.0))
@@ -54,11 +55,8 @@ impl WindowManager {
             .build(event_loop)?;
 
         let window_size = window.inner_size();
-        
-        // Criar proxy para enviar eventos customizados
         let proxy = event_loop.create_proxy();
         
-        // Criar Toolbar Webview com IPC handler
         let toolbar_webview = Self::create_toolbar_webview(
             &window,
             window_size,
@@ -66,8 +64,7 @@ impl WindowManager {
             proxy.clone(),
         )?;
         
-        // Criar Content Webview inicial (sem perfil)
-        let content_webview = Self::create_content_webview_welcome(
+        let welcome_webview = Self::create_welcome_webview(
             &window,
             window_size,
             state.clone(),
@@ -77,7 +74,8 @@ impl WindowManager {
         Ok(Self {
             window,
             toolbar_webview,
-            content_webview: Some(content_webview),
+            welcome_webview,
+            profile_webviews: HashMap::new(),
             state,
             current_profile_uuid: None,
             proxy,
@@ -98,7 +96,6 @@ impl WindowManager {
 
         let toolbar_html = include_str!("../ui/toolbar/index.html");
         
-        // Script de inicialização
         let init_script = r#"
             console.log('[Toolbar] Initialization script running');
             console.log('[Toolbar] window.ipc available:', typeof window.ipc !== 'undefined');
@@ -138,7 +135,7 @@ impl WindowManager {
         Ok(webview)
     }
 
-    fn create_content_webview_welcome(
+    fn create_welcome_webview(
         window: &Window,
         window_size: PhysicalSize<u32>,
         state: AppState,
@@ -155,8 +152,7 @@ impl WindowManager {
         let welcome_html = include_str!("../ui/content/index.html");
 
         let init_script = r#"
-            console.log('[Content] Initialization script running');
-            console.log('[Content] window.ipc available:', typeof window.ipc !== 'undefined');
+            console.log('[Welcome] Initialization script running');
         "#;
 
         let webview = WebViewBuilder::new()
@@ -167,7 +163,7 @@ impl WindowManager {
                 let body = request.body();
                 
                 if let Ok(message) = IpcMessage::from_json(body) {
-                    println!("[Content IPC] Received: {:?}", message);
+                    println!("[Welcome IPC] Received: {:?}", message);
                     
                     match message {
                         IpcMessage::AddProfile { name, url, icon_path, user_agent } => {
@@ -184,7 +180,7 @@ impl WindowManager {
                         _ => {
                             let handler = IpcHandler::new(state.clone());
                             if let Some(response) = handler.handle_message(message) {
-                                println!("[Content] Response: {:?}", response);
+                                println!("[Welcome] Response: {:?}", response);
                             }
                         }
                     }
@@ -195,7 +191,7 @@ impl WindowManager {
         Ok(webview)
     }
 
-    fn create_content_webview_for_profile(
+    fn create_profile_webview(
         window: &Window,
         window_size: PhysicalSize<u32>,
         web_context: &mut WebContext,
@@ -210,13 +206,14 @@ impl WindowManager {
         };
 
         let init_script = r#"
-            console.log('[Content Profile] Initialization script running');
+            console.log('[Profile] Initialization script running');
         "#;
 
         let webview = WebViewBuilder::new_with_web_context(web_context)
             .with_bounds(content_bounds)
             .with_initialization_script(init_script)
             .with_url(url)
+            .with_visible(false) // Iniciar oculto
             .build_as_child(window)?;
 
         Ok(webview)
@@ -246,21 +243,32 @@ impl WindowManager {
     }
 
     pub fn show_add_profile_form(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let add_profile_html = include_str!("../ui/content/add-profile.html");
-        if let Some(webview) = &self.content_webview {
-            webview.load_html(add_profile_html)?;
+        // Ocultar todas as webviews de perfis
+        for webview in self.profile_webviews.values() {
+            webview.set_visible(false)?;
         }
+        
+        let add_profile_html = include_str!("../ui/content/add-profile.html");
+        self.welcome_webview.load_html(add_profile_html)?;
+        self.welcome_webview.set_visible(true)?;
+        
+        self.current_profile_uuid = None;
         println!("[WindowManager] Showing add profile form");
         Ok(())
     }
 
     pub fn show_welcome(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let welcome_html = include_str!("../ui/content/index.html");
-        if let Some(webview) = &self.content_webview {
-            webview.load_html(welcome_html)?;
+        // Ocultar todas as webviews de perfis
+        for webview in self.profile_webviews.values() {
+            webview.set_visible(false)?;
         }
-        println!("[WindowManager] Showing welcome screen");
+        
+        let welcome_html = include_str!("../ui/content/index.html");
+        self.welcome_webview.load_html(welcome_html)?;
+        self.welcome_webview.set_visible(true)?;
+        
         self.current_profile_uuid = None;
+        println!("[WindowManager] Showing welcome screen");
         Ok(())
     }
 
@@ -274,38 +282,44 @@ impl WindowManager {
             
             println!("[WindowManager] Navigating to profile: {} ({})", name, url);
             
-            // Se estamos mudando de perfil, recriar a webview com WebContext isolado
-            if self.current_profile_uuid.as_ref() != Some(&uuid.to_string()) {
-                println!("[WindowManager] Recreating content webview with isolated WebContext");
+            // Ocultar welcome webview
+            self.welcome_webview.set_visible(false)?;
+            
+            // Ocultar todas as outras webviews de perfis
+            for (other_uuid, webview) in &self.profile_webviews {
+                if other_uuid != uuid {
+                    webview.set_visible(false)?;
+                }
+            }
+            
+            // Se a webview do perfil já existe, apenas mostrar
+            if self.profile_webviews.contains_key(uuid) {
+                println!("[WindowManager] Showing existing webview for profile {}", uuid);
+                self.profile_webviews.get(uuid).unwrap().set_visible(true)?;
+            } else {
+                // Criar nova webview para este perfil
+                println!("[WindowManager] Creating new webview for profile {}", uuid);
                 
-                // Obter referências necessárias ANTES de pegar &mut self.web_contexts
                 let window_size = self.window.inner_size();
                 let window_ptr = &self.window as *const Window;
                 
-                // Destruir webview antiga
-                self.content_webview = None;
-                
-                // Obter ou criar WebContext para este perfil
                 let web_context = self.get_or_create_web_context(uuid)?;
-                
-                // Criar nova webview com WebContext isolado
                 let window_ref = unsafe { &*window_ptr };
                 
-                self.content_webview = Some(Self::create_content_webview_for_profile(
+                let webview = Self::create_profile_webview(
                     window_ref,
                     window_size,
                     web_context,
                     &url,
-                )?);
+                )?;
                 
-                self.current_profile_uuid = Some(uuid.to_string());
-            } else {
-                // Mesmo perfil, apenas navegar
-                if let Some(webview) = &self.content_webview {
-                    webview.load_url(&url)?;
-                }
+                // Mostrar a nova webview
+                webview.set_visible(true)?;
+                
+                self.profile_webviews.insert(uuid.to_string(), webview);
             }
             
+            self.current_profile_uuid = Some(uuid.to_string());
             Ok(())
         } else {
             Err("Perfil não encontrado".into())
@@ -362,7 +376,10 @@ impl WindowManager {
                 new_size.height,
             ).into(),
         };
-        if let Some(webview) = &self.content_webview {
+        
+        let _ = self.welcome_webview.set_bounds(content_bounds);
+        
+        for webview in self.profile_webviews.values() {
             let _ = webview.set_bounds(content_bounds);
         }
     }
