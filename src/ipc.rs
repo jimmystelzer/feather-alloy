@@ -21,6 +21,37 @@ pub enum IpcMessage {
     ShowAddProfileForm,
     CancelAddProfile,
     
+    // Menu de Contexto
+    ReloadProfile {
+        uuid: String,
+    },
+    UpdateProfileIcon {
+        uuid: String,
+    },
+    EditProfile {
+        uuid: String,
+    },
+    
+    // Edição de Perfil
+    UpdateProfile {
+        uuid: String,
+        name: String,
+        url: String,
+        icon_path: Option<String>,
+        user_agent: Option<String>,
+    },
+    
+    // Configurações
+    ShowSettings,
+    GetSettings,
+    UpdateSettings {
+        minimize_on_open: bool,
+        minimize_on_close: bool,
+        hide_on_close: bool,
+        enable_tray: bool,
+    },
+    QuitApp,
+    
     // Mensagens do Backend para a Toolbar
     ProfileAdded {
         profile: crate::profile::WebProfile,
@@ -28,8 +59,14 @@ pub enum IpcMessage {
     ProfileRemoved {
         uuid: String,
     },
+    ProfileUpdated {
+        profile: crate::profile::WebProfile,
+    },
     ProfilesList {
         profiles: Vec<crate::profile::WebProfile>,
+    },
+    SettingsData {
+        settings: crate::profile::AppSettings,
     },
     
     // Mensagens do Backend para a Content Webview
@@ -114,6 +151,15 @@ impl IpcHandler {
                     })
                 }
             }
+            
+            IpcMessage::GetSettings => {
+                let data = self.state.lock().unwrap();
+                let settings = data.settings.clone();
+                drop(data);
+                
+                Some(IpcMessage::SettingsData { settings })
+            }
+
             
             // Outras mensagens não precisam de resposta ou são apenas para notificação
             _ => None,

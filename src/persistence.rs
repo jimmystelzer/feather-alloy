@@ -98,6 +98,22 @@ pub fn load_settings() -> Result<AppSettings, Box<dyn std::error::Error>> {
     }
 }
 
+/// Deleta os dados de um perfil do disco
+pub fn delete_profile_data(uuid: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let profile_dir = dirs::data_dir()
+        .ok_or("Failed to get data directory")?
+        .join("feather-alloy")
+        .join("profiles")
+        .join(uuid);
+    
+    if profile_dir.exists() {
+        fs::remove_dir_all(&profile_dir)?;
+        println!("[Persistence] Deleted profile data: {:?}", profile_dir);
+    }
+    
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

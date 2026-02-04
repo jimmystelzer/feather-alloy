@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurações</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 28px;
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+            padding: 16px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .form-group h3 {
+            color: #555;
+            font-size: 16px;
+            margin-bottom: 12px;
+        }
+
+        .checkbox-wrapper {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .checkbox-wrapper:last-child {
+            margin-bottom: 0;
+        }
+
+        input[type="checkbox"],
+        input[type="radio"] {
+            width: 20px;
+            height: 20px;
+            margin-right: 12px;
+            cursor: pointer;
+        }
+
+        label {
+            color: #666;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .help-text {
+            font-size: 12px;
+            color: #888;
+            margin-top: 8px;
+            padding-left: 32px;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 30px;
+        }
+
+        button {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #666;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+            margin-top: 20px;
+            width: 100%;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .divider {
+            height: 1px;
+            background: #e0e0e0;
+            margin: 30px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>⚙️ Configurações</h1>
+        <form id="settingsForm">
+            <div class="form-group">
+                <h3>Inicialização</h3>
+                <div class="checkbox-wrapper">
+                    <input type="checkbox" id="minimizeOnOpen">
+                    <label for="minimizeOnOpen">Minimizar ao abrir</label>
+                </div>
+                <div class="help-text">Inicia a aplicação minimizada na bandeja</div>
+            </div>
+
+            <div class="form-group">
+                <h3>Comportamento ao Fechar</h3>
+                <div class="checkbox-wrapper">
+                    <input type="radio" name="closeAction" id="minimizeOnClose">
+                    <label for="minimizeOnClose">Minimizar ao fechar</label>
+                </div>
+                <div class="checkbox-wrapper">
+                    <input type="radio" name="closeAction" id="hideOnClose">
+                    <label for="hideOnClose">Ocultar ao fechar</label>
+                </div>
+                <div class="checkbox-wrapper">
+                    <input type="radio" name="closeAction" id="exitOnClose">
+                    <label for="exitOnClose">Encerrar ao fechar</label>
+                </div>
+                <div class="help-text">Define o que acontece ao clicar no botão "X"</div>
+            </div>
+
+            <div class="form-group">
+                <h3>Ícone de Bandeja</h3>
+                <div class="checkbox-wrapper">
+                    <input type="checkbox" id="enableTray">
+                    <label for="enableTray">Mostrar ícone na bandeja do sistema</label>
+                </div>
+                <div class="help-text">Permite acessar a aplicação pela bandeja</div>
+            </div>
+
+            <div class="button-group">
+                <button type="button" class="btn-secondary" onclick="cancelSettings()">Cancelar</button>
+                <button type="submit" class="btn-primary">Salvar</button>
+            </div>
+
+            <div class="divider"></div>
+
+            <button type="button" class="btn-danger" onclick="quitApp()">Fechar Feather Alloy</button>
+        </form>
+    </div>
+
+    <script>
+        // Função chamada pelo backend para carregar configurações
+        window.loadSettings = function(settings) {
+            console.log('[Settings] Loading settings:', settings);
+            document.getElementById('minimizeOnOpen').checked = settings.minimize_on_open;
+            document.getElementById('enableTray').checked = settings.enable_tray;
+
+            // Configurar radio buttons para comportamento ao fechar
+            if (settings.minimize_on_close) {
+                document.getElementById('minimizeOnClose').checked = true;
+            } else if (settings.hide_on_close) {
+                document.getElementById('hideOnClose').checked = true;
+            } else {
+                document.getElementById('exitOnClose').checked = true;
+            }
+        };
+
+        document.getElementById('settingsForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const minimizeOnOpen = document.getElementById('minimizeOnOpen').checked;
+            const minimizeOnClose = document.getElementById('minimizeOnClose').checked;
+            const hideOnClose = document.getElementById('hideOnClose').checked;
+            const enableTray = document.getElementById('enableTray').checked;
+
+            console.log('[Settings] Saving settings:', { minimizeOnOpen, minimizeOnClose, hideOnClose, enableTray });
+
+            window.ipc.postMessage(JSON.stringify({
+                type: 'UpdateSettings',
+                payload: {
+                    minimize_on_open: minimizeOnOpen,
+                    minimize_on_close: minimizeOnClose,
+                    hide_on_close: hideOnClose,
+                    enable_tray: enableTray
+                }
+            }));
+        });
+
+        function cancelSettings() {
+            window.ipc.postMessage(JSON.stringify({
+                type: 'ShowWelcome'
+            }));
+        }
+
+        function quitApp() {
+            console.log('[Settings] quitApp called, sending QuitApp message');
+            window.ipc.postMessage(JSON.stringify({
+                type: 'QuitApp'
+            }));
+        }
+    </script>
+</body>
+</html>

@@ -25,11 +25,37 @@ pub enum AppEvent {
         icon_path: Option<String>,
         user_agent: Option<String>,
     },
+    UpdateProfile {
+        uuid: String,
+        name: String,
+        url: String,
+        icon_path: Option<String>,
+        user_agent: Option<String>,
+    },
     ShowProfile {
+        uuid: String,
+    },
+    ReloadProfile {
+        uuid: String,
+    },
+    UpdateProfileIcon {
+        uuid: String,
+    },
+    ShowEditProfile {
+        uuid: String,
+    },
+    RemoveProfile {
         uuid: String,
     },
     UpdateToolbar,
     ShowWelcome,
+    ShowSettings,
+    UpdateSettings {
+        minimize_on_open: bool,
+        minimize_on_close: bool,
+        hide_on_close: bool,
+        enable_tray: bool,
+    },
     ToggleWindow,
     Quit,
 }
@@ -107,6 +133,12 @@ impl WindowManager {
                 Ok(tray) => manager.tray = Some(tray),
                 Err(e) => eprintln!("[WindowManager] Failed to setup tray: {}", e),
             }
+        }
+
+        // Minimizar janela ao abrir se configurado
+        if manager.state.lock().unwrap().settings.minimize_on_open {
+            println!("[WindowManager] minimize_on_open is enabled, minimizing window");
+            manager.window.set_minimized(true);
         }
 
         Ok(manager)
@@ -260,6 +292,21 @@ impl WindowManager {
                         IpcMessage::GetProfiles => {
                             let _ = proxy.send_event(AppEvent::UpdateToolbar);
                         }
+                        IpcMessage::ReloadProfile { uuid } => {
+                            let _ = proxy.send_event(AppEvent::ReloadProfile { uuid });
+                        }
+                        IpcMessage::UpdateProfileIcon { uuid } => {
+                            let _ = proxy.send_event(AppEvent::UpdateProfileIcon { uuid });
+                        }
+                        IpcMessage::EditProfile { uuid } => {
+                            let _ = proxy.send_event(AppEvent::ShowEditProfile { uuid });
+                        }
+                        IpcMessage::RemoveProfile { uuid } => {
+                            let _ = proxy.send_event(AppEvent::RemoveProfile { uuid });
+                        }
+                        IpcMessage::ShowSettings => {
+                            let _ = proxy.send_event(AppEvent::ShowSettings);
+                        }
                         _ => {
                             let handler = IpcHandler::new(state.clone());
                             if let Some(response) = handler.handle_message(message) {
@@ -314,8 +361,33 @@ impl WindowManager {
                                 user_agent,
                             });
                         }
+                        IpcMessage::UpdateProfile { uuid, name, url, icon_path, user_agent } => {
+                            let _ = proxy.send_event(AppEvent::UpdateProfile {
+                                uuid,
+                                name,
+                                url,
+                                icon_path,
+                                user_agent,
+                            });
+                        }
+                        IpcMessage::UpdateSettings { minimize_on_open, minimize_on_close, hide_on_close, enable_tray } => {
+                            let _ = proxy.send_event(AppEvent::UpdateSettings {
+                                minimize_on_open,
+                                minimize_on_close,
+                                hide_on_close,
+                                enable_tray,
+                            });
+                        }
                         IpcMessage::CancelAddProfile => {
                             let _ = proxy.send_event(AppEvent::CancelAddProfile);
+                        }
+                        IpcMessage::ShowWelcome => {
+                            println!("[Welcome IPC] ShowWelcome received, sending ShowWelcome event");
+                            let _ = proxy.send_event(AppEvent::ShowWelcome);
+                        }
+                        IpcMessage::QuitApp => {
+                            println!("[Welcome IPC] QuitApp received, sending Quit event");
+                            let _ = proxy.send_event(AppEvent::Quit);
                         }
                         _ => {
                             let handler = IpcHandler::new(state.clone());
@@ -493,6 +565,207 @@ impl WindowManager {
         Ok(())
     }
 
+    pub fn update_profile(
+        &mut self,
+        uuid: String,
+        name: String,
+        url: String,
+        icon_path: Option<String>,
+        user_agent: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut data = self.state.lock().unwrap();
+        
+        if let Some(profile) = data.profiles.iter_mut().find(|p| p.uuid == uuid) {
+            profile.name = name.clone();
+            profile.url = url.clone();
+            profile.icon_path = icon_path;
+            profile.user_agent = user_agent;
+            
+            // Salvar perfis em disco
+            if let Err(e) = crate::persistence::save_profiles(&data.profiles) {
+                eprintln!("[WindowManager] Failed to save profiles: {}", e);
+            }
+            
+            drop(data);
+            
+            println!("[WindowManager] Profile updated: {} ({})", name, url);
+            
+            self.update_toolbar_profiles()?;
+            self.show_welcome()?;
+            
+            Ok(())
+        } else {
+            drop(data);
+            Err("Perfil não encontrado".into())
+        }
+    }
+
+    pub fn reload_profile(&mut self, uuid: &str) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(webview) = self.profile_webviews.get(uuid) {
+            // Recarregar a webview
+            let data = self.state.lock().unwrap();
+            if let Some(profile) = data.profiles.iter().find(|p| p.uuid == uuid) {
+                let url = profile.url.clone();
+                drop(data);
+                
+                webview.load_url(&url)?;
+                println!("[WindowManager] Profile {} reloaded", uuid);
+                Ok(())
+            } else {
+                drop(data);
+                Err("Perfil não encontrado".into())
+            }
+        } else {
+            Err("WebView do perfil não encontrada".into())
+        }
+    }
+
+    pub fn update_profile_icon(&mut self, uuid: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // TODO: Implementar busca de favicon
+        println!("[WindowManager] Update icon for profile {}", uuid);
+        Ok(())
+    }
+
+    pub fn show_edit_profile(&mut self, uuid: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let data = self.state.lock().unwrap();
+        
+        if let Some(profile) = data.profiles.iter().find(|p| p.uuid == uuid) {
+            let profile_json = serde_json::to_string(profile)?;
+            drop(data);
+            
+            // Ocultar todas as webviews de perfis
+            for webview in self.profile_webviews.values() {
+                webview.set_visible(false)?;
+            }
+            
+            let edit_profile_html = include_str!("../ui/content/edit-profile.html");
+            self.welcome_webview.load_html(edit_profile_html)?;
+            
+            // Injetar dados do perfil
+            let script = format!(
+                "if (window.loadProfileData) {{ window.loadProfileData({}); }}",
+                profile_json
+            );
+            self.welcome_webview.evaluate_script(&script)?;
+            self.welcome_webview.set_visible(true)?;
+            
+            self.current_profile_uuid = None;
+            println!("[WindowManager] Showing edit profile form for {}", uuid);
+            Ok(())
+        } else {
+            drop(data);
+            Err("Perfil não encontrado".into())
+        }
+    }
+
+    pub fn remove_profile(&mut self, uuid: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // Remover webview se existir
+        if let Some(webview) = self.profile_webviews.remove(uuid) {
+            drop(webview);
+        }
+        
+        // Remover web context
+        self.web_contexts.remove(uuid);
+        
+        // Remover do estado
+        let mut data = self.state.lock().unwrap();
+        data.profiles.retain(|p| p.uuid != uuid);
+        
+        // Salvar perfis em disco
+        if let Err(e) = crate::persistence::save_profiles(&data.profiles) {
+            eprintln!("[WindowManager] Failed to save profiles: {}", e);
+        }
+        
+        drop(data);
+        
+        // Limpar dados do perfil do disco
+        if let Err(e) = crate::persistence::delete_profile_data(uuid) {
+            eprintln!("[WindowManager] Failed to delete profile data: {}", e);
+        }
+        
+        println!("[WindowManager] Profile {} removed", uuid);
+        
+        self.update_toolbar_profiles()?;
+        self.show_welcome()?;
+        
+        Ok(())
+    }
+
+    pub fn show_settings(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Ocultar todas as webviews de perfis
+        for webview in self.profile_webviews.values() {
+            webview.set_visible(false)?;
+        }
+        
+        // Obter dados das configurações
+        let data = self.state.lock().unwrap();
+        let settings_json = serde_json::to_string(&data.settings)?;
+        drop(data);
+        
+        println!("[WindowManager] Loading settings with data: {}", settings_json);
+        
+        // Carregar HTML e injetar dados diretamente
+        let settings_html = include_str!("../ui/content/settings.html");
+        
+        // Adicionar script de inicialização com os dados no HTML
+        let html_with_data = settings_html.replace(
+            "</body>",
+            &format!(
+                r#"<script>
+                console.log('[Settings] Injected data script running');
+                window.__SETTINGS_DATA__ = {};
+                if (window.loadSettings) {{
+                    console.log('[Settings] Calling loadSettings immediately');
+                    window.loadSettings(window.__SETTINGS_DATA__);
+                }} else {{
+                    console.log('[Settings] loadSettings not ready, will retry');
+                    document.addEventListener('DOMContentLoaded', function() {{
+                        console.log('[Settings] DOMContentLoaded, calling loadSettings');
+                        if (window.loadSettings) {{
+                            window.loadSettings(window.__SETTINGS_DATA__);
+                        }}
+                    }});
+                }}
+                </script></body>"#,
+                settings_json
+            )
+        );
+        
+        self.welcome_webview.load_html(&html_with_data)?;
+        self.welcome_webview.set_visible(true)?;
+        
+        self.current_profile_uuid = None;
+        println!("[WindowManager] Settings screen loaded");
+        Ok(())
+    }
+
+    pub fn update_settings(
+        &mut self,
+        minimize_on_open: bool,
+        minimize_on_close: bool,
+        hide_on_close: bool,
+        enable_tray: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut data = self.state.lock().unwrap();
+        data.settings.minimize_on_open = minimize_on_open;
+        data.settings.minimize_on_close = minimize_on_close;
+        data.settings.hide_on_close = hide_on_close;
+        data.settings.enable_tray = enable_tray;
+        
+        // Salvar configurações em disco
+        if let Err(e) = crate::persistence::save_settings(&data.settings) {
+            eprintln!("[WindowManager] Failed to save settings: {}", e);
+        }
+        
+        drop(data);
+        
+        println!("[WindowManager] Settings updated");
+        
+        self.show_welcome()?;
+        
+        Ok(())
+    }
+
     pub fn update_toolbar_profiles(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let data = self.state.lock().unwrap();
         let profiles_json = serde_json::to_string(&data.profiles)?;
@@ -556,14 +829,35 @@ impl WindowManager {
                         AppEvent::AddProfile { name, url, icon_path, user_agent } => {
                             let _ = self.add_profile(name, url, icon_path, user_agent);
                         }
+                        AppEvent::UpdateProfile { uuid, name, url, icon_path, user_agent } => {
+                            let _ = self.update_profile(uuid, name, url, icon_path, user_agent);
+                        }
                         AppEvent::ShowProfile { uuid } => {
                             let _ = self.navigate_to_profile(&uuid);
+                        }
+                        AppEvent::ReloadProfile { uuid } => {
+                            let _ = self.reload_profile(&uuid);
+                        }
+                        AppEvent::UpdateProfileIcon { uuid } => {
+                            let _ = self.update_profile_icon(&uuid);
+                        }
+                        AppEvent::ShowEditProfile { uuid } => {
+                            let _ = self.show_edit_profile(&uuid);
+                        }
+                        AppEvent::RemoveProfile { uuid } => {
+                            let _ = self.remove_profile(&uuid);
                         }
                         AppEvent::UpdateToolbar => {
                             let _ = self.update_toolbar_profiles();
                         }
                         AppEvent::ShowWelcome => {
                             let _ = self.show_welcome();
+                        }
+                        AppEvent::ShowSettings => {
+                            let _ = self.show_settings();
+                        }
+                        AppEvent::UpdateSettings { minimize_on_open, minimize_on_close, hide_on_close, enable_tray } => {
+                            let _ = self.update_settings(minimize_on_open, minimize_on_close, hide_on_close, enable_tray);
                         }
                         AppEvent::ToggleWindow => {
                             println!("[WindowManager] >>> TOGGLE WINDOW EVENT");

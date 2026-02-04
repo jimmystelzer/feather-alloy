@@ -232,6 +232,52 @@
         .btn-secondary:hover {
             background: rgba(255, 255, 255, 0.15);
         }
+
+        /* Context Menu */
+        .context-menu {
+            display: none;
+            position: fixed;
+            background: #1a1a2e;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 8px 0;
+            min-width: 180px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            z-index: 2000;
+        }
+
+        .context-menu.active {
+            display: block;
+        }
+
+        .context-menu-item {
+            padding: 10px 16px;
+            color: rgba(255, 255, 255, 0.9);
+            cursor: pointer;
+            transition: background 0.2s;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .context-menu-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .context-menu-item.danger {
+            color: #ff6b6b;
+        }
+
+        .context-menu-item.danger:hover {
+            background: rgba(255, 107, 107, 0.1);
+        }
+
+        .context-menu-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+            margin: 4px 0;
+        }
     </style>
 </head>
 <body>
@@ -280,6 +326,23 @@
                     <button type="submit" class="btn btn-primary">Adicionar</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div class="context-menu" id="contextMenu">
+        <div class="context-menu-item" data-action="reload">
+            🔄 Atualizar conteúdo
+        </div>
+        <div class="context-menu-item" data-action="update-icon">
+            🎨 Atualizar ícone
+        </div>
+        <div class="context-menu-divider"></div>
+        <div class="context-menu-item" data-action="edit">
+            ✏️ Editar perfil
+        </div>
+        <div class="context-menu-item danger" data-action="remove">
+            🗑️ Remover perfil
         </div>
     </div>
 
@@ -447,9 +510,86 @@
         }
 
         function showContextMenu(profile, x, y) {
-            // TODO: Implementar menu de contexto para editar/remover perfil
-            console.log('[Toolbar] Context menu for profile:', profile);
+            console.log('[Toolbar] Showing context menu for profile:', profile);
+            
+            const contextMenu = document.getElementById('contextMenu');
+            if (!contextMenu) return;
+            
+            // Posicionar o menu
+            contextMenu.style.left = `${x}px`;
+            contextMenu.style.top = `${y}px`;
+            contextMenu.classList.add('active');
+            
+            // Armazenar o perfil atual no menu
+            contextMenu.dataset.profileUuid = profile.uuid;
+            
+            // Adicionar event listeners aos itens do menu (remover anteriores primeiro)
+            const items = contextMenu.querySelectorAll('.context-menu-item');
+            items.forEach(item => {
+                const newItem = item.cloneNode(true);
+                item.parentNode.replaceChild(newItem, item);
+            });
+            
+            // Adicionar novos listeners
+            contextMenu.querySelectorAll('.context-menu-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const action = item.dataset.action;
+                    handleContextMenuAction(action, profile.uuid);
+                    hideContextMenu();
+                });
+            });
         }
+
+        function hideContextMenu() {
+            const contextMenu = document.getElementById('contextMenu');
+            if (contextMenu) {
+                contextMenu.classList.remove('active');
+            }
+        }
+
+        function handleContextMenuAction(action, uuid) {
+            console.log('[Toolbar] Context menu action:', action, 'for profile:', uuid);
+            
+            switch (action) {
+                case 'reload':
+                    sendMessage({
+                        type: 'ReloadProfile',
+                        payload: { uuid }
+                    });
+                    break;
+                    
+                case 'update-icon':
+                    sendMessage({
+                        type: 'UpdateProfileIcon',
+                        payload: { uuid }
+                    });
+                    break;
+                    
+                case 'edit':
+                    sendMessage({
+                        type: 'EditProfile',
+                        payload: { uuid }
+                    });
+                    break;
+                    
+                case 'remove':
+                    if (confirm('Tem certeza que deseja remover este perfil?')) {
+                        sendMessage({
+                            type: 'RemoveProfile',
+                            payload: { uuid }
+                        });
+                    }
+                    break;
+            }
+        }
+
+        // Fechar menu de contexto ao clicar fora
+        document.addEventListener('click', (e) => {
+            const contextMenu = document.getElementById('contextMenu');
+            if (contextMenu && !contextMenu.contains(e.target)) {
+                hideContextMenu();
+            }
+        });
 
         // Comunicação IPC
         function sendMessage(message) {
