@@ -78,7 +78,9 @@ pub enum AppEvent {
 pub struct WindowManager {
     window: Window,
     #[cfg(target_os = "linux")]
-    container: gtk::Fixed,
+    main_layout: gtk::Box,
+    #[cfg(target_os = "linux")]
+    content_container: gtk::Box,
     toolbar_webview: WebView,
     welcome_webview: WebView,
     // WebViews por perfil (UUID -> WebView)
@@ -122,18 +124,31 @@ impl WindowManager {
         let proxy = event_loop.create_proxy();
         
         #[cfg(target_os = "linux")]
-        let container = {
+        let (main_layout, content_container, toolbar_container) = {
             let vbox = window.default_vbox().expect("Failed to get default vbox");
-            let fixed = gtk::Fixed::new();
-            vbox.pack_start(&fixed, true, true, 0);
-            fixed.show_all();
-            fixed
+            
+            // Container principal horizontal (HBox)
+            let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            vbox.pack_start(&hbox, true, true, 0);
+            
+            // Container da toolbar (Box)
+            let toolbar_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            toolbar_box.set_width_request(TOOLBAR_WIDTH as i32);
+            hbox.pack_start(&toolbar_box, false, true, 0); // Não expande horizontalmente
+            
+            // Container de conteúdo (Box)
+            let content_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            hbox.pack_start(&content_box, true, true, 0); // Expande horizontalmente
+            
+            hbox.show_all();
+            
+            (hbox, content_box, toolbar_box)
         };
         
         let toolbar_webview = Self::create_toolbar_webview(
             &window,
             #[cfg(target_os = "linux")]
-            &container,
+            &toolbar_container,
             window_size,
             state.clone(),
             proxy.clone(),
@@ -142,7 +157,7 @@ impl WindowManager {
         let welcome_webview = Self::create_welcome_webview(
             &window,
             #[cfg(target_os = "linux")]
-            &container,
+            &content_container,
             window_size,
             state.clone(),
             proxy.clone(),
@@ -151,7 +166,9 @@ impl WindowManager {
         let mut manager = Self {
             window,
             #[cfg(target_os = "linux")]
-            container,
+            main_layout,
+            #[cfg(target_os = "linux")]
+            content_container,
             toolbar_webview,
             welcome_webview,
             profile_webviews: HashMap::new(),
@@ -300,7 +317,7 @@ impl WindowManager {
         #[cfg(not(target_os = "linux"))] window: &Window,
         #[cfg(target_os = "linux")] _window: &Window,
         #[cfg(target_os = "linux")]
-        container: &gtk::Fixed,
+        container: &gtk::Box,
         window_size: PhysicalSize<u32>,
         state: AppState,
         proxy: EventLoopProxy<AppEvent>,
@@ -381,7 +398,14 @@ impl WindowManager {
             });
 
         #[cfg(target_os = "linux")]
-        let webview = builder.build_gtk(container)?;
+        let webview = {
+            let w = builder.build_gtk(container)?;
+            // Garantir que a webview preencha o container
+            if let Some(child) = container.children().last() {
+                container.set_child_packing(child, true, true, 0, gtk::PackType::Start);
+            }
+            w
+        };
         #[cfg(not(target_os = "linux"))]
         let webview = builder.build_as_child(window)?;
 
@@ -392,7 +416,7 @@ impl WindowManager {
         #[cfg(not(target_os = "linux"))] window: &Window,
         #[cfg(target_os = "linux")] _window: &Window,
         #[cfg(target_os = "linux")]
-        container: &gtk::Fixed,
+        container: &gtk::Box,
         window_size: PhysicalSize<u32>,
         state: AppState,
         proxy: EventLoopProxy<AppEvent>,
@@ -483,7 +507,14 @@ impl WindowManager {
             });
 
         #[cfg(target_os = "linux")]
-        let webview = builder.build_gtk(container)?;
+        let webview = {
+            let w = builder.build_gtk(container)?;
+            // Garantir que a webview preencha o container
+            if let Some(child) = container.children().last() {
+                container.set_child_packing(child, true, true, 0, gtk::PackType::Start);
+            }
+            w
+        };
         #[cfg(not(target_os = "linux"))]
         let webview = builder.build_as_child(window)?;
 
@@ -494,7 +525,7 @@ impl WindowManager {
         #[cfg(not(target_os = "linux"))] window: &Window,
         #[cfg(target_os = "linux")] _window: &Window,
         #[cfg(target_os = "linux")]
-        container: &gtk::Fixed,
+        container: &gtk::Box,
         window_size: PhysicalSize<u32>,
         web_context: &mut WebContext,
         url: &str,
@@ -528,7 +559,14 @@ impl WindowManager {
             .with_visible(false); // Iniciar oculto
 
         #[cfg(target_os = "linux")]
-        let webview = builder.build_gtk(container)?;
+        let webview = {
+            let w = builder.build_gtk(container)?;
+            // Garantir que a webview preencha o container
+            if let Some(child) = container.children().last() {
+                container.set_child_packing(child, true, true, 0, gtk::PackType::Start);
+            }
+            w
+        };
         #[cfg(not(target_os = "linux"))]
         let webview = builder.build_as_child(window)?;
 
@@ -620,7 +658,7 @@ impl WindowManager {
                 let window_ptr = &self.window as *const Window;
                 
                 #[cfg(target_os = "linux")]
-                let container = self.container.clone();
+                let container = self.content_container.clone();
 
                 let web_context = self.get_or_create_web_context(uuid)?;
                 let window_ref = unsafe { &*window_ptr };
