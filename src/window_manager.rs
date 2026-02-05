@@ -7,6 +7,12 @@ use tao::{
     window::{Window, WindowBuilder},
 };
 use wry::{Rect, WebView, WebViewBuilder, WebContext};
+#[cfg(target_os = "linux")]
+use wry::WebViewBuilderExtUnix;
+#[cfg(target_os = "linux")]
+use tao::platform::unix::WindowExtUnix;
+#[cfg(target_os = "linux")]
+use gtk::prelude::*;
 use tray_icon::TrayIconBuilder;
 
 use crate::ipc::{IpcHandler, IpcMessage};
@@ -71,6 +77,8 @@ pub enum AppEvent {
 
 pub struct WindowManager {
     window: Window,
+    #[cfg(target_os = "linux")]
+    container: gtk::Fixed,
     toolbar_webview: WebView,
     welcome_webview: WebView,
     // WebViews por perfil (UUID -> WebView)
@@ -113,8 +121,19 @@ impl WindowManager {
         let window_size = window.inner_size();
         let proxy = event_loop.create_proxy();
         
+        #[cfg(target_os = "linux")]
+        let container = {
+            let vbox = window.default_vbox().expect("Failed to get default vbox");
+            let fixed = gtk::Fixed::new();
+            vbox.pack_start(&fixed, true, true, 0);
+            fixed.show_all();
+            fixed
+        };
+        
         let toolbar_webview = Self::create_toolbar_webview(
             &window,
+            #[cfg(target_os = "linux")]
+            &container,
             window_size,
             state.clone(),
             proxy.clone(),
@@ -122,6 +141,8 @@ impl WindowManager {
         
         let welcome_webview = Self::create_welcome_webview(
             &window,
+            #[cfg(target_os = "linux")]
+            &container,
             window_size,
             state.clone(),
             proxy.clone(),
@@ -129,6 +150,8 @@ impl WindowManager {
 
         let mut manager = Self {
             window,
+            #[cfg(target_os = "linux")]
+            container,
             toolbar_webview,
             welcome_webview,
             profile_webviews: HashMap::new(),
@@ -274,7 +297,10 @@ impl WindowManager {
     }
 
     fn create_toolbar_webview(
-        window: &Window,
+        #[cfg(not(target_os = "linux"))] window: &Window,
+        #[cfg(target_os = "linux")] _window: &Window,
+        #[cfg(target_os = "linux")]
+        container: &gtk::Fixed,
         window_size: PhysicalSize<u32>,
         state: AppState,
         proxy: EventLoopProxy<AppEvent>,
@@ -298,7 +324,7 @@ impl WindowManager {
             console.log('[Toolbar] window.ipc available:', typeof window.ipc !== 'undefined');
         "#;
         
-        let webview = WebViewBuilder::new()
+        let builder = WebViewBuilder::new()
             .with_bounds(toolbar_bounds)
             .with_custom_protocol("asset".into(), Self::asset_protocol_handler)
             // Scripts de inicialização executados em ordem
@@ -352,14 +378,21 @@ impl WindowManager {
                         }
                     }
                 }
-            })
-            .build_as_child(window)?;
+            });
+
+        #[cfg(target_os = "linux")]
+        let webview = builder.build_gtk(container)?;
+        #[cfg(not(target_os = "linux"))]
+        let webview = builder.build_as_child(window)?;
 
         Ok(webview)
     }
 
     fn create_welcome_webview(
-        window: &Window,
+        #[cfg(not(target_os = "linux"))] window: &Window,
+        #[cfg(target_os = "linux")] _window: &Window,
+        #[cfg(target_os = "linux")]
+        container: &gtk::Fixed,
         window_size: PhysicalSize<u32>,
         state: AppState,
         proxy: EventLoopProxy<AppEvent>,
@@ -385,7 +418,7 @@ impl WindowManager {
             console.log('[Welcome] Initialization script running');
         "#;
 
-        let webview = WebViewBuilder::new()
+        let builder = WebViewBuilder::new()
             .with_bounds(content_bounds)
             .with_custom_protocol("asset".into(), Self::asset_protocol_handler)
             // Scripts executados em ordem
@@ -447,14 +480,21 @@ impl WindowManager {
                         }
                     }
                 }
-            })
-            .build_as_child(window)?;
+            });
+
+        #[cfg(target_os = "linux")]
+        let webview = builder.build_gtk(container)?;
+        #[cfg(not(target_os = "linux"))]
+        let webview = builder.build_as_child(window)?;
 
         Ok(webview)
     }
 
     fn create_profile_webview(
-        window: &Window,
+        #[cfg(not(target_os = "linux"))] window: &Window,
+        #[cfg(target_os = "linux")] _window: &Window,
+        #[cfg(target_os = "linux")]
+        container: &gtk::Fixed,
         window_size: PhysicalSize<u32>,
         web_context: &mut WebContext,
         url: &str,
@@ -478,15 +518,19 @@ impl WindowManager {
             console.log('[Profile] Initialization script running');
         "#;
 
-        let webview = WebViewBuilder::new_with_web_context(web_context)
+        let builder = WebViewBuilder::new_with_web_context(web_context)
             .with_bounds(content_bounds)
             // Scripts executados em ordem
             .with_initialization_script(disable_context_menu)
             .with_initialization_script(init_script)
             .with_devtools(false) // Desabilitar DevTools
             .with_url(url)
-            .with_visible(false) // Iniciar oculto
-            .build_as_child(window)?;
+            .with_visible(false); // Iniciar oculto
+
+        #[cfg(target_os = "linux")]
+        let webview = builder.build_gtk(container)?;
+        #[cfg(not(target_os = "linux"))]
+        let webview = builder.build_as_child(window)?;
 
         Ok(webview)
     }
@@ -575,11 +619,16 @@ impl WindowManager {
                 let window_size = self.window.inner_size();
                 let window_ptr = &self.window as *const Window;
                 
+                #[cfg(target_os = "linux")]
+                let container = self.container.clone();
+
                 let web_context = self.get_or_create_web_context(uuid)?;
                 let window_ref = unsafe { &*window_ptr };
                 
                 let webview = Self::create_profile_webview(
                     window_ref,
+                    #[cfg(target_os = "linux")]
+                    &container,
                     window_size,
                     web_context,
                     &url,
